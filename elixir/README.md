@@ -61,7 +61,8 @@ mise exec -- elixir --version
 
 ```bash
 git clone <this-repo-url>
-cd entracte/elixir
+cd entracte
+cd elixir
 mise trust
 mise install
 mise exec -- mix setup
@@ -69,7 +70,8 @@ mise exec -- mix build
 cp .env.example .env
 $EDITOR .env
 mise exec -- mix symphony.bootstrap
-mix symphony.start
+cd ..
+./entracte start
 ```
 
 See [`docs/team_workflow.md`](docs/team_workflow.md) for team runner models, credit ownership, and
@@ -77,16 +79,28 @@ manager onboarding.
 
 ### Optional global launcher
 
-Install a small `entracte` command into `~/.local/bin` when you want to start runners from profile
-files without remembering the full Mix invocation:
+This repo also includes `./entracte`, a small wrapper around the Mix tasks:
+
+```bash
+./entracte start
+./entracte check
+./entracte bootstrap
+```
+
+Install a global `entracte` command into `~/.local/bin` when you want the same
+command from any directory or want to start runners from profile files without
+remembering the full Mix invocation:
 
 ```bash
 mise exec -- mix entracte.install
 ```
 
-Then use a TOML profile from any directory:
+Then start this checkout with defaults or use a TOML profile from any directory:
 
 ```bash
+entracte start
+entracte check
+entracte start /path/to/runner.toml
 entracte /path/to/runner.toml
 entracte check /path/to/runner.toml
 ```

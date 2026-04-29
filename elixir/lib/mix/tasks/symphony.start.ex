@@ -3,7 +3,7 @@ defmodule Mix.Tasks.Symphony.Start do
 
   alias Mix.Tasks.Symphony.TrackerLabel.Install, as: TrackerLabelInstall
   alias Mix.Tasks.Symphony.TrackerTemplate.Install, as: TrackerTemplateInstall
-  alias SymphonyElixir.{CLI, EnvFile, StartCommand, TrackerLabelInstaller, TrackerTemplateInstaller}
+  alias SymphonyElixir.{CLI, EnvFile, RunnerProbe, StartCommand, TrackerLabelInstaller, TrackerTemplateInstaller}
 
   @moduledoc """
   Starts a local Symphony runner with safe defaults.
@@ -32,8 +32,6 @@ defmodule Mix.Tasks.Symphony.Start do
     skip_label_install: :boolean,
     skip_template_install: :boolean
   ]
-  @dialyzer {:no_return, run: 1}
-
   @impl Mix.Task
   def run(args) do
     {opts, argv, invalid} = OptionParser.parse(args, strict: @switches)
@@ -58,14 +56,63 @@ defmodule Mix.Tasks.Symphony.Start do
   end
 
   defp start_single_runner(opts) do
-    with {:ok, cli_args} <- StartCommand.cli_args(opts),
-         :ok <- ensure_tracker_labels(opts),
-         :ok <- ensure_tracker_templates(opts),
-         :ok <- CLI.evaluate(cli_args) do
-      Mix.shell().info("Symphony runner started. Press Ctrl-C to stop.")
-      CLI.wait_for_shutdown()
+    with {:ok, cli_args} <- StartCommand.cli_args(opts) do
+      case existing_runner(cli_args) do
+        {:ok, port} ->
+          Mix.shell().info("Symphony runner already reachable at #{RunnerProbe.dashboard_url(port)}; leaving it running.")
+          :ok
+
+        :not_running ->
+          start_new_runner(opts, cli_args)
+      end
     end
   end
+
+  defp start_new_runner(opts, cli_args) do
+    with :ok <- ensure_tracker_labels(opts),
+         :ok <- ensure_tracker_templates(opts) do
+      case CLI.evaluate(cli_args) do
+        :ok ->
+          Mix.shell().info("Symphony runner started. Press Ctrl-C to stop.")
+          CLI.wait_for_shutdown()
+
+        {:error, message} ->
+          {:error, format_start_error(message, port_from_cli_args(cli_args))}
+      end
+    end
+  end
+
+  defp existing_runner(cli_args) do
+    case port_from_cli_args(cli_args) do
+      port when is_integer(port) and port > 0 ->
+        if RunnerProbe.dashboard_running?(port), do: {:ok, port}, else: :not_running
+
+      _port ->
+        :not_running
+    end
+  end
+
+  defp port_from_cli_args(["--port", raw_port | _rest]), do: parse_cli_port(raw_port)
+  defp port_from_cli_args([_arg | rest]), do: port_from_cli_args(rest)
+  defp port_from_cli_args([]), do: nil
+
+  defp parse_cli_port(raw_port) when is_binary(raw_port) do
+    case Integer.parse(raw_port) do
+      {port, ""} -> port
+      _ -> nil
+    end
+  end
+
+  defp format_start_error(message, port) when is_binary(message) and is_integer(port) and port > 0 do
+    if String.contains?(message, ":eaddrinuse") do
+      "Port #{port} is already in use. If that is Symphony, open #{RunnerProbe.dashboard_url(port)}. " <>
+        "Otherwise start with another port, for example `entracte start --port #{port + 1}`."
+    else
+      message
+    end
+  end
+
+  defp format_start_error(message, _port), do: message
 
   defp maybe_preload_launcher_env(opts) do
     if Keyword.has_key?(opts, :profile) do

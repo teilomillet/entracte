@@ -4,14 +4,22 @@ defmodule Mix.Tasks.Entracte.Install do
   @shortdoc "Installs the entracte launcher into a user bin directory"
 
   @moduledoc """
-  Installs a small `entracte` launcher that starts Symphony from TOML runner
-  profiles.
+  Installs a small `entracte` launcher that starts Symphony from this checkout
+  with repo defaults or from TOML runner profiles.
 
       mix entracte.install
       mix entracte.install --bin-dir ~/.local/bin --force
 
-  The generated launcher keeps this checkout as the runtime source and accepts
-  profile files with a `[runner]` table:
+  The generated launcher keeps this checkout as the runtime source:
+
+      entracte
+      entracte start
+      entracte check
+      entracte start /path/to/runner.toml
+      entracte check /path/to/runner.toml
+
+  For backwards compatibility, `entracte /path/to/runner.toml` starts that
+  profile. Profile files use a `[runner]` table:
 
       [runner]
       workflow = "WORKFLOW.anef.md"
@@ -93,25 +101,49 @@ defmodule Mix.Tasks.Entracte.Install do
 
     ENTRACTE_HOME=${ENTRACTE_HOME:-#{escaped_project_dir}}
 
-    if [ "$#" -lt 1 ]; then
-      echo "usage: entracte [check] <profile.toml>" >&2
-      exit 2
-    fi
-
     mode="start"
-    if [ "$1" = "check" ]; then
-      mode="check"
-      shift
-    fi
+    profile_arg=""
 
-    if [ "$#" -ne 1 ]; then
-      echo "usage: entracte [check] <profile.toml>" >&2
-      exit 2
-    fi
+    case "$#" in
+      0)
+        ;;
+      1)
+        case "$1" in
+          start)
+            ;;
+          check)
+            mode="check"
+            ;;
+          -h|--help|help)
+            echo "usage: entracte [start|check] [profile.toml]" >&2
+            exit 0
+            ;;
+          *)
+            profile_arg="$1"
+            ;;
+        esac
+        ;;
+      2)
+        case "$1" in
+          start|check)
+            mode="$1"
+            profile_arg="$2"
+            ;;
+          *)
+            echo "usage: entracte [start|check] [profile.toml]" >&2
+            exit 2
+            ;;
+        esac
+        ;;
+      *)
+        echo "usage: entracte [start|check] [profile.toml]" >&2
+        exit 2
+        ;;
+    esac
 
     CALLER_CWD="$(pwd -P)"
 
-    python3 - "$mode" "$1" "$ENTRACTE_HOME" "$CALLER_CWD" <<'PY'
+    python3 - "$mode" "$profile_arg" "$ENTRACTE_HOME" "$CALLER_CWD" <<'PY'
     import os
     import pathlib
     import shutil
@@ -121,10 +153,6 @@ defmodule Mix.Tasks.Entracte.Install do
     profile_arg = sys.argv[2]
     entracte_home = pathlib.Path(sys.argv[3])
     caller_cwd = pathlib.Path(sys.argv[4])
-
-    profile_path = pathlib.Path(profile_arg).expanduser()
-    if not profile_path.is_absolute():
-        profile_path = (caller_cwd / profile_path).resolve()
 
     def parse_profile(text):
         data = {}
@@ -153,9 +181,16 @@ defmodule Mix.Tasks.Entracte.Install do
             target[key] = parsed
         return data
 
-    data = parse_profile(profile_path.read_text())
-    runner = data.get("runner", data)
-    base = profile_path.parent
+    if profile_arg:
+        profile_path = pathlib.Path(profile_arg).expanduser()
+        if not profile_path.is_absolute():
+            profile_path = (caller_cwd / profile_path).resolve()
+        data = parse_profile(profile_path.read_text())
+        runner = data.get("runner", data)
+        base = profile_path.parent
+    else:
+        runner = {}
+        base = entracte_home
 
     def path_value(key):
         value = runner.get(key)

@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+elixir_dir="${ENTRACTE_HOME:-$repo_root/elixir}"
+
+usage() {
+  echo "usage: ./entracte [start|check|bootstrap|install] [args...]" >&2
+}
+
+mode="${1:-start}"
+case "$mode" in
+  start)
+    shift || true
+    task="symphony.start"
+    ;;
+  check)
+    shift || true
+    task="symphony.check"
+    ;;
+  bootstrap)
+    shift || true
+    task="symphony.bootstrap"
+    ;;
+  install)
+    shift || true
+    task="entracte.install"
+    ;;
+  -h|--help|help)
+    usage
+    exit 0
+    ;;
+  *)
+    task="symphony.start"
+    ;;
+esac
+
+cd "$elixir_dir"
+
+if command -v mise >/dev/null 2>&1; then
+  exec mise exec -- mix "$task" "$@"
+fi
+
+exec mix "$task" "$@"
