@@ -302,6 +302,259 @@ pre,
   padding-bottom: 0.8rem;
 }
 
+.issue-activity-grid {
+  display: grid;
+  gap: 0;
+  margin-top: 1rem;
+}
+
+.issue-activity-card {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.issue-activity-card:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.issue-activity-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.issue-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.issue-id-link {
+  font-size: 1rem;
+}
+
+.focus-panel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.8rem;
+  align-items: start;
+  padding: 0.78rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.focus-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.7rem;
+  padding: 0.26rem 0.58rem;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: white;
+  color: var(--ink);
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.focus-badge-danger {
+  background: var(--danger-soft);
+  border-color: #f6d3cf;
+  color: var(--danger);
+}
+
+.focus-badge-test,
+.focus-badge-build,
+.focus-badge-command {
+  background: #eef4ff;
+  border-color: #cdddfd;
+  color: #1d4e89;
+}
+
+.focus-badge-review,
+.focus-badge-pr {
+  background: #fff7e8;
+  border-color: #f1d8a6;
+  color: #8a5a00;
+}
+
+.focus-badge-tracker,
+.focus-badge-tool,
+.focus-badge-research,
+.focus-badge-git,
+.focus-badge-edit {
+  background: var(--accent-soft);
+  border-color: rgba(16, 163, 127, 0.18);
+  color: var(--accent-ink);
+}
+
+.focus-copy {
+  display: grid;
+  gap: 0.32rem;
+  min-width: 0;
+}
+
+.focus-detail {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.98rem;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.focus-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.85rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.milestone-list,
+.diagnostic-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.milestone-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.68rem;
+  align-items: start;
+  padding: 0.58rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.milestone-item:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.milestone-dot {
+  width: 0.58rem;
+  height: 0.58rem;
+  margin-top: 0.42rem;
+  border-radius: 999px;
+  background: var(--muted);
+}
+
+.milestone-dot-danger {
+  background: var(--danger);
+}
+
+.milestone-dot-test,
+.milestone-dot-build,
+.milestone-dot-command {
+  background: #1d4e89;
+}
+
+.milestone-dot-review,
+.milestone-dot-pr {
+  background: #8a5a00;
+}
+
+.milestone-dot-tracker,
+.milestone-dot-tool,
+.milestone-dot-research,
+.milestone-dot-git,
+.milestone-dot-edit {
+  background: var(--accent);
+}
+
+.milestone-copy {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.milestone-title,
+.milestone-detail {
+  margin: 0;
+}
+
+.milestone-title {
+  color: var(--ink);
+  font-size: 0.94rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.milestone-detail {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.milestone-time {
+  color: var(--muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.diagnostics-panel,
+.raw-activity-panel {
+  border-top: 1px solid var(--line);
+  padding-top: 0.72rem;
+}
+
+.diagnostics-panel summary,
+.raw-activity-panel summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 650;
+}
+
+.diagnostics-count {
+  color: var(--ink);
+}
+
+.diagnostic-list {
+  margin-top: 0.55rem;
+}
+
+.diagnostic-item {
+  display: grid;
+  grid-template-columns: 5.2rem minmax(0, 1fr);
+  gap: 0.7rem;
+  padding: 0.38rem 0;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.diagnostic-item:first-child {
+  border-top: 0;
+}
+
+.diagnostic-message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact-empty {
+  margin-top: 0;
+}
+
 .activity-list {
   display: grid;
   gap: 0;
@@ -508,6 +761,21 @@ pre,
     justify-content: flex-start;
     min-width: 0;
     flex-wrap: wrap;
+  }
+
+  .issue-activity-header,
+  .milestone-item,
+  .focus-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .issue-activity-header {
+    display: grid;
+  }
+
+  .diagnostic-item {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
   }
 
   .metric-grid {

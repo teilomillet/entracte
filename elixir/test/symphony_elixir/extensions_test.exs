@@ -771,6 +771,23 @@ defmodule SymphonyElixir.ExtensionsTest do
                  "last_message" => "rendered",
                  "started_at" => state_payload["running"] |> List.first() |> Map.fetch!("started_at"),
                  "last_event_at" => nil,
+                 "current_focus" => %{
+                   "label" => "Active",
+                   "detail" => "observed activity",
+                   "kind" => "activity",
+                   "at" => state_payload["running"] |> List.first() |> Map.fetch!("current_focus") |> Map.fetch!("at")
+                 },
+                 "milestones" => [],
+                 "diagnostics" => %{
+                   "events" => [
+                     %{
+                       "event" => "notification",
+                       "message" => "observed activity",
+                       "at" => state_payload["running"] |> List.first() |> get_in(["diagnostics", "events"]) |> List.first() |> Map.fetch!("at")
+                     }
+                   ],
+                   "hidden_count" => 0
+                 },
                  "recent_events" => [
                    %{
                      "event" => "notification",
@@ -823,6 +840,23 @@ defmodule SymphonyElixir.ExtensionsTest do
                "last_event" => "notification",
                "last_message" => "rendered",
                "last_event_at" => nil,
+               "current_focus" => %{
+                 "label" => "Active",
+                 "detail" => "observed activity",
+                 "kind" => "activity",
+                 "at" => issue_payload["running"]["current_focus"]["at"]
+               },
+               "milestones" => [],
+               "diagnostics" => %{
+                 "events" => [
+                   %{
+                     "event" => "notification",
+                     "message" => "observed activity",
+                     "at" => issue_payload["running"]["diagnostics"]["events"] |> List.first() |> Map.fetch!("at")
+                   }
+                 ],
+                 "hidden_count" => 0
+               },
                "recent_events" => [
                  %{
                    "event" => "notification",
@@ -860,6 +894,48 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     assert %{"queued" => true, "coalesced" => false, "operations" => ["poll", "reconcile"]} =
              json_response(conn, 202)
+  end
+
+  test "phoenix observability api summarizes noisy activity into readable focus" do
+    orchestrator_name = Module.concat(__MODULE__, :HttpActivitySummaryOrchestrator)
+    now = DateTime.utc_now()
+
+    snapshot =
+      static_snapshot()
+      |> put_in([:running, Access.at(0), :codex_recent_events], [
+        %{event: :notification, message: "item started: reasoning (rs_1)", timestamp: now},
+        %{
+          event: :notification,
+          message: "command output streaming: github.com Logged in to github.com account",
+          timestamp: DateTime.add(now, -1, :second)
+        },
+        %{
+          event: :notification,
+          message: "thread token usage updated (in 1, out 2, total 3)",
+          timestamp: DateTime.add(now, -2, :second)
+        }
+      ])
+
+    {:ok, _pid} =
+      StaticOrchestrator.start_link(
+        name: orchestrator_name,
+        snapshot: snapshot
+      )
+
+    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
+
+    running =
+      build_conn()
+      |> get("/api/v1/state")
+      |> json_response(200)
+      |> Map.fetch!("running")
+      |> List.first()
+
+    assert running["current_focus"]["label"] == "Checked GitHub auth"
+    assert running["current_focus"]["kind"] == "git"
+    assert [%{"label" => "Checked GitHub auth"}] = running["milestones"]
+    assert running["diagnostics"]["hidden_count"] == 0
+    assert length(running["diagnostics"]["events"]) == 3
   end
 
   test "phoenix observability api preserves 405, 404, and unavailable behavior" do
@@ -983,7 +1059,9 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert html =~ "Offline"
     assert html =~ "Copy ID"
     assert html =~ "Codex update"
-    assert html =~ "Latest Codex activity across active issues."
+    assert html =~ "Active issue focus, milestones, and diagnostics."
+    assert html =~ "Recent event stream"
+    assert html =~ "Show raw events"
     refute html =~ "data-runtime-clock="
     refute html =~ "setInterval(refreshRuntimeClocks"
     refute html =~ "Refresh now"

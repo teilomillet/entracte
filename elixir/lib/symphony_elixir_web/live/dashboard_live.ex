@@ -110,28 +110,25 @@ defmodule SymphonyElixirWeb.DashboardLive do
           <div class="section-header">
             <div>
               <h2 class="section-title">What's happening</h2>
-              <p class="section-copy">Latest Codex activity across active issues.</p>
+              <p class="section-copy">Active issue focus, milestones, and diagnostics.</p>
             </div>
           </div>
 
-          <%= if @payload.activity == [] do %>
-            <p class="empty-state">No Codex activity has been recorded yet.</p>
+          <%= if @payload.running == [] do %>
+            <p class="empty-state">No active sessions.</p>
           <% else %>
-            <ol class="activity-list">
-              <li :for={entry <- @payload.activity} class="activity-item">
-                <div class="activity-main">
-                  <div class="activity-heading">
-                    <span class="issue-id"><%= entry.issue_identifier %></span>
+            <div class="issue-activity-grid">
+              <article :for={entry <- @payload.running} class="issue-activity-card">
+                <header class="issue-activity-header">
+                  <div class="issue-heading">
+                    <a class="issue-id issue-id-link" href={"/api/v1/#{entry.issue_identifier}"}>
+                      <%= entry.issue_identifier %>
+                    </a>
                     <span class={state_badge_class(entry.state)}>
                       <%= entry.state %>
                     </span>
                   </div>
-                  <p class="activity-message">
-                    <%= entry.message || to_string(entry.event || "n/a") %>
-                  </p>
-                </div>
-                <div class="activity-meta">
-                  <span class="mono numeric"><%= entry.at || "n/a" %></span>
+
                   <%= if entry.session_id do %>
                     <button
                       type="button"
@@ -143,9 +140,94 @@ defmodule SymphonyElixirWeb.DashboardLive do
                       Copy ID
                     </button>
                   <% end %>
+                </header>
+
+                <div class="focus-panel">
+                  <span class={focus_badge_class(entry.current_focus.kind)}>
+                    <%= entry.current_focus.label %>
+                  </span>
+                  <div class="focus-copy">
+                    <p class="focus-detail">
+                      <%= focus_detail(entry.current_focus) %>
+                    </p>
+                    <p class="focus-meta numeric">
+                      <span><%= format_runtime_and_turns(entry.started_at, entry.turn_count, @now) %></span>
+                      <span><%= format_int(entry.tokens.total_tokens) %> tokens</span>
+                      <span><%= format_time(entry.current_focus.at || entry.last_event_at) %></span>
+                    </p>
+                  </div>
                 </div>
-              </li>
-            </ol>
+
+                <%= if entry.milestones == [] do %>
+                  <p class="empty-state compact-empty">No meaningful milestone yet.</p>
+                <% else %>
+                  <ol class="milestone-list">
+                    <li :for={milestone <- entry.milestones} class="milestone-item">
+                      <span class={milestone_dot_class(milestone.kind)}></span>
+                      <div class="milestone-copy">
+                        <p class="milestone-title"><%= milestone.label %></p>
+                        <%= if milestone.detail do %>
+                          <p class="milestone-detail"><%= milestone.detail %></p>
+                        <% end %>
+                      </div>
+                      <time class="milestone-time numeric"><%= format_time(milestone.at) %></time>
+                    </li>
+                  </ol>
+                <% end %>
+
+                <details class="diagnostics-panel">
+                  <summary>
+                    Diagnostics
+                    <span class="diagnostics-count">
+                      <%= diagnostic_count(entry.diagnostics) %>
+                    </span>
+                  </summary>
+                  <ol class="diagnostic-list">
+                    <li :for={event <- entry.diagnostics.events} class="diagnostic-item">
+                      <span class="diagnostic-time numeric"><%= format_time(event.at) %></span>
+                      <span class="diagnostic-message">
+                        <%= event.message || to_string(event.event || "n/a") %>
+                      </span>
+                    </li>
+                  </ol>
+                </details>
+              </article>
+            </div>
+          <% end %>
+        </section>
+
+        <section class="section-card activity-section">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">Recent event stream</h2>
+              <p class="section-copy">Raw recent events, kept for debugging.</p>
+            </div>
+          </div>
+
+          <%= if @payload.activity == [] do %>
+            <p class="empty-state">No Codex activity has been recorded yet.</p>
+          <% else %>
+            <details class="raw-activity-panel">
+              <summary>Show raw events</summary>
+              <ol class="activity-list">
+                <li :for={entry <- @payload.activity} class="activity-item">
+                  <div class="activity-main">
+                    <div class="activity-heading">
+                      <span class="issue-id"><%= entry.issue_identifier %></span>
+                      <span class={state_badge_class(entry.state)}>
+                        <%= entry.state %>
+                    </span>
+                    </div>
+                    <p class="activity-message">
+                      <%= entry.message || to_string(entry.event || "n/a") %>
+                    </p>
+                  </div>
+                  <div class="activity-meta">
+                    <span class="mono numeric"><%= format_time(entry.at) %></span>
+                  </div>
+                </li>
+              </ol>
+            </details>
           <% end %>
         </section>
 
@@ -363,6 +445,46 @@ defmodule SymphonyElixirWeb.DashboardLive do
       true -> base
     end
   end
+
+  defp focus_badge_class(kind), do: "focus-badge focus-badge-#{css_token(kind)}"
+  defp milestone_dot_class(kind), do: "milestone-dot milestone-dot-#{css_token(kind)}"
+
+  defp css_token(kind) do
+    kind
+    |> to_string()
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9_-]+/, "-")
+  end
+
+  defp focus_detail(%{detail: detail}) when is_binary(detail) and detail != "", do: detail
+  defp focus_detail(%{label: label}) when is_binary(label), do: label
+  defp focus_detail(_focus), do: "Waiting for activity"
+
+  defp diagnostic_count(%{events: events, hidden_count: hidden_count}) when is_list(events) do
+    visible_count = length(events)
+
+    case hidden_count do
+      count when is_integer(count) and count > 0 -> "#{visible_count}+#{count}"
+      _ -> Integer.to_string(visible_count)
+    end
+  end
+
+  defp diagnostic_count(_diagnostics), do: "0"
+
+  defp format_time(nil), do: "n/a"
+
+  defp format_time(%DateTime{} = datetime) do
+    Calendar.strftime(datetime, "%H:%M:%SZ")
+  end
+
+  defp format_time(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> format_time(datetime)
+      _ -> value
+    end
+  end
+
+  defp format_time(_value), do: "n/a"
 
   defp schedule_runtime_tick do
     Process.send_after(self(), :runtime_tick, @runtime_tick_ms)

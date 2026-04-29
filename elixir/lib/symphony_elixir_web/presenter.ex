@@ -5,6 +5,23 @@ defmodule SymphonyElixirWeb.Presenter do
 
   alias SymphonyElixir.{Config, Orchestrator, StatusDashboard}
 
+  @milestone_limit 4
+  @diagnostic_limit 8
+  @milestone_rules [
+    {:command_failed, "danger", "Command failed", :raw},
+    {:files_changed, "edit", "Updated files", :raw},
+    {:linear_graphql, "tracker", "Reading Linear", :none},
+    {:dynamic_tool, "tool", "Calling tool", :raw},
+    {:web_search, "research", "Checking external docs", :none},
+    {:github_auth, "git", "Checked GitHub auth", :compact},
+    {:pr_checks, "review", "Watching PR checks", :compact},
+    {:sourcery_review, "review", "Reading PR review", :compact},
+    {:tests, "test", "Running tests", :compact},
+    {:compile, "build", "Compiling project", :compact},
+    {:human_review, "review", "Preparing human review", :compact},
+    {:pull_request, "pr", "Working on PR", :compact}
+  ]
+
   @spec state_payload(GenServer.name(), timeout()) :: map()
   def state_payload(orchestrator, snapshot_timeout_ms) do
     generated_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
@@ -97,6 +114,8 @@ defmodule SymphonyElixirWeb.Presenter do
   defp issue_status(_running, _retry), do: "running"
 
   defp running_entry_payload(entry) do
+    activity = running_activity_payload(entry)
+
     %{
       issue_id: entry.issue_id,
       issue_identifier: entry.identifier,
@@ -110,6 +129,9 @@ defmodule SymphonyElixirWeb.Presenter do
       started_at: iso8601(entry.started_at),
       last_event_at: iso8601(entry.last_codex_timestamp),
       recent_events: recent_events_payload(entry),
+      current_focus: activity.current_focus,
+      milestones: activity.milestones,
+      diagnostics: activity.diagnostics,
       tokens: %{
         input_tokens: entry.codex_input_tokens,
         output_tokens: entry.codex_output_tokens,
@@ -131,6 +153,8 @@ defmodule SymphonyElixirWeb.Presenter do
   end
 
   defp running_issue_payload(running) do
+    activity = running_activity_payload(running)
+
     %{
       worker_host: Map.get(running, :worker_host),
       workspace_path: Map.get(running, :workspace_path),
@@ -142,6 +166,9 @@ defmodule SymphonyElixirWeb.Presenter do
       last_message: summarize_message(running.last_codex_message),
       last_event_at: iso8601(running.last_codex_timestamp),
       recent_events: recent_events_payload(running),
+      current_focus: activity.current_focus,
+      milestones: activity.milestones,
+      diagnostics: activity.diagnostics,
       tokens: %{
         input_tokens: running.codex_input_tokens,
         output_tokens: running.codex_output_tokens,
@@ -196,6 +223,174 @@ defmodule SymphonyElixirWeb.Presenter do
 
   defp activity_sort_key(%{at: at}) when is_binary(at), do: at
   defp activity_sort_key(_activity), do: ""
+
+  defp running_activity_payload(running) when is_map(running) do
+    events = recent_events_payload(running)
+    milestones = milestone_payload(events)
+
+    %{
+      current_focus: current_focus_payload(events, milestones, running),
+      milestones: milestones,
+      diagnostics: diagnostic_payload(events)
+    }
+  end
+
+  defp milestone_payload(events) do
+    events
+    |> Enum.map(&milestone_from_event/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq_by(&milestone_key/1)
+    |> Enum.take(@milestone_limit)
+  end
+
+  defp milestone_key(%{kind: kind, label: label, detail: detail}) do
+    {kind, label, normalize_message(detail)}
+  end
+
+  defp diagnostic_payload(events) do
+    event_count = length(events)
+    events = Enum.take(events, @diagnostic_limit)
+
+    %{
+      events: events,
+      hidden_count: max(event_count - @diagnostic_limit, 0)
+    }
+  end
+
+  defp current_focus_payload(_events, [milestone | _rest], _running) do
+    %{
+      label: milestone.label,
+      detail: milestone.detail,
+      at: milestone.at,
+      kind: milestone.kind
+    }
+  end
+
+  defp current_focus_payload(events, _milestones, running) do
+    events
+    |> Enum.find_value(&fallback_focus_from_event/1)
+    |> case do
+      nil ->
+        %{
+          label: "Waiting for activity",
+          detail: summarize_message(Map.get(running, :last_codex_message)),
+          at: iso8601(Map.get(running, :last_codex_timestamp)),
+          kind: "idle"
+        }
+
+      focus ->
+        focus
+    end
+  end
+
+  defp milestone_from_event(%{message: message} = event) do
+    normalized = normalize_message(message)
+
+    if normalized == "" or noisy_message?(normalized) do
+      nil
+    else
+      Enum.find_value(@milestone_rules, &milestone_for_rule(&1, event, normalized, message))
+    end
+  end
+
+  defp milestone_from_event(_event), do: nil
+
+  defp milestone_for_rule({rule, kind, label, detail_mode}, event, normalized, message) do
+    if milestone_rule_matches?(rule, normalized) do
+      milestone(event, kind, label, milestone_detail(detail_mode, message))
+    end
+  end
+
+  defp milestone_rule_matches?(:command_failed, message),
+    do: String.contains?(message, "command execution") and String.contains?(message, "failed")
+
+  defp milestone_rule_matches?(:files_changed, message), do: String.contains?(message, "turn diff updated")
+
+  defp milestone_rule_matches?(:linear_graphql, message),
+    do: String.contains?(message, "dynamic tool call requested (linear_graphql)")
+
+  defp milestone_rule_matches?(:dynamic_tool, message), do: String.contains?(message, "dynamic tool call requested")
+  defp milestone_rule_matches?(:web_search, message), do: String.contains?(message, "item started: web search")
+
+  defp milestone_rule_matches?(:github_auth, message),
+    do: String.contains?(message, "github.com") and String.contains?(message, "logged in")
+
+  defp milestone_rule_matches?(:pr_checks, message), do: String.contains?(message, "refreshing checks status")
+  defp milestone_rule_matches?(:sourcery_review, message), do: String.contains?(message, "sourcery")
+
+  defp milestone_rule_matches?(:tests, message),
+    do: String.contains?(message, "cover compiling") or String.contains?(message, "running exunit")
+
+  defp milestone_rule_matches?(:compile, message), do: String.contains?(message, "compiling")
+  defp milestone_rule_matches?(:human_review, message), do: String.contains?(message, "human review")
+
+  defp milestone_rule_matches?(:pull_request, message),
+    do: String.contains?(message, "pull request") or String.contains?(message, " pr ")
+
+  defp milestone_rule_matches?(_rule, _message), do: false
+
+  defp milestone_detail(:none, _message), do: nil
+  defp milestone_detail(:compact, message), do: compact_detail(message)
+  defp milestone_detail(:raw, message), do: message
+
+  defp milestone(%{at: at, event: event}, kind, label, detail) do
+    %{at: at, event: event, kind: kind, label: label, detail: detail}
+  end
+
+  defp fallback_focus_from_event(%{message: message} = event) do
+    normalized = normalize_message(message)
+
+    cond do
+      normalized == "" ->
+        nil
+
+      String.contains?(normalized, "item started: reasoning") ->
+        focus(event, "reasoning", "Reasoning", nil)
+
+      String.contains?(normalized, "item started: command execution") ->
+        focus(event, "command", "Running command", nil)
+
+      String.contains?(normalized, "command output streaming") and not noisy_message?(normalized) ->
+        focus(event, "command", "Reading command output", compact_detail(message))
+
+      String.contains?(normalized, "item started: agent message") ->
+        focus(event, "message", "Writing update", nil)
+
+      true ->
+        focus(event, "activity", "Active", compact_detail(message))
+    end
+  end
+
+  defp fallback_focus_from_event(_event), do: nil
+
+  defp focus(%{at: at}, kind, label, detail), do: %{at: at, kind: kind, label: label, detail: detail}
+
+  defp noisy_message?(message) when is_binary(message) do
+    String.starts_with?(message, [
+      "thread token usage updated",
+      "rate limits updated",
+      "item completed: reasoning",
+      "item started: reasoning",
+      "item completed: command execution",
+      "item started: command execution",
+      "item completed: agent message",
+      "item started: agent message",
+      "agent message streaming:",
+      "command output streaming: ."
+    ])
+  end
+
+  defp compact_detail(nil), do: nil
+
+  defp compact_detail(message) when is_binary(message) do
+    case String.trim(message) do
+      "" -> nil
+      value -> value
+    end
+  end
+
+  defp normalize_message(nil), do: ""
+  defp normalize_message(message), do: message |> to_string() |> String.downcase() |> String.trim()
 
   defp recent_events_payload(running) do
     case Map.get(running, :codex_recent_events, []) do
