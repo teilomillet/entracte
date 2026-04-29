@@ -105,7 +105,7 @@ defmodule SymphonyElixir.AgentRuntime.Headless do
   defp remote_launch_command(command, workspace, prompt_file, prompt) do
     """
     prompt_file=#{shell_escape(prompt_file)}
-    printf %s #{shell_escape(prompt)} > "$prompt_file"
+    printf '%s' #{shell_escape(prompt)} > "$prompt_file"
     cd #{shell_escape(workspace)} || { status=$?; rm -f "$prompt_file"; exit $status; }
     export SYMPHONY_AGENT_PROMPT_FILE="$prompt_file"
     #{command} < "$prompt_file"
