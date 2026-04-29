@@ -49,6 +49,7 @@ defmodule SymphonyElixir.Config.Schema do
       field(:endpoint, :string, default: "https://api.linear.app/graphql")
       field(:api_key, :string)
       field(:project_slug, :string)
+      field(:project_slugs, {:array, :string}, default: [])
       field(:assignee, :string)
       field(:active_states, {:array, :string}, default: ["Todo", "In Progress"])
       field(:terminal_states, {:array, :string}, default: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"])
@@ -59,7 +60,7 @@ defmodule SymphonyElixir.Config.Schema do
       schema
       |> cast(
         attrs,
-        [:kind, :endpoint, :api_key, :project_slug, :assignee, :active_states, :terminal_states],
+        [:kind, :endpoint, :api_key, :project_slug, :project_slugs, :assignee, :active_states, :terminal_states],
         empty_values: []
       )
     end
@@ -80,6 +81,26 @@ defmodule SymphonyElixir.Config.Schema do
       schema
       |> cast(attrs, [:interval_ms], empty_values: [])
       |> validate_number(:interval_ms, greater_than: 0)
+    end
+  end
+
+  defmodule Dispatch do
+    @moduledoc false
+    use Ecto.Schema
+    import Ecto.Changeset
+
+    @primary_key false
+    embedded_schema do
+      field(:require_ready_label, :boolean, default: true)
+      field(:ready_label, :string, default: "agent-ready")
+      field(:paused_label, :string, default: "agent-paused")
+    end
+
+    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+    def changeset(schema, attrs) do
+      schema
+      |> cast(attrs, [:require_ready_label, :ready_label, :paused_label], empty_values: [])
+      |> validate_required([:ready_label, :paused_label])
     end
   end
 
@@ -263,6 +284,7 @@ defmodule SymphonyElixir.Config.Schema do
 
   embedded_schema do
     embeds_one(:tracker, Tracker, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:dispatch, Dispatch, on_replace: :update, defaults_to_struct: true)
     embeds_one(:polling, Polling, on_replace: :update, defaults_to_struct: true)
     embeds_one(:workspace, Workspace, on_replace: :update, defaults_to_struct: true)
     embeds_one(:worker, Worker, on_replace: :update, defaults_to_struct: true)
@@ -355,6 +377,7 @@ defmodule SymphonyElixir.Config.Schema do
     %__MODULE__{}
     |> cast(attrs, [])
     |> cast_embed(:tracker, with: &Tracker.changeset/2)
+    |> cast_embed(:dispatch, with: &Dispatch.changeset/2)
     |> cast_embed(:polling, with: &Polling.changeset/2)
     |> cast_embed(:workspace, with: &Workspace.changeset/2)
     |> cast_embed(:worker, with: &Worker.changeset/2)
@@ -366,9 +389,21 @@ defmodule SymphonyElixir.Config.Schema do
   end
 
   defp finalize_settings(settings) do
+    project_slug = resolve_secret_setting(settings.tracker.project_slug, System.get_env("LINEAR_PROJECT_SLUG"))
+
+    project_slugs =
+      resolve_project_slugs(
+        settings.tracker.project_slugs,
+        System.get_env("LINEAR_PROJECT_SLUGS"),
+        settings.tracker.project_slug,
+        project_slug
+      )
+
     tracker = %{
       settings.tracker
       | api_key: resolve_secret_setting(settings.tracker.api_key, System.get_env("LINEAR_API_KEY")),
+        project_slug: List.first(project_slugs),
+        project_slugs: project_slugs,
         assignee: resolve_secret_setting(settings.tracker.assignee, System.get_env("LINEAR_ASSIGNEE"))
     }
 
@@ -421,6 +456,50 @@ defmodule SymphonyElixir.Config.Schema do
       resolved -> resolved
     end
   end
+
+  defp resolve_project_slugs(configured_project_slugs, env_project_slugs, raw_project_slug, project_slug) do
+    configured_slugs = normalize_project_slugs(configured_project_slugs)
+    env_slugs = normalize_project_slugs(env_project_slugs)
+
+    cond do
+      configured_slugs != [] -> configured_slugs
+      explicit_project_slug?(raw_project_slug) and is_binary(project_slug) -> [project_slug]
+      env_slugs != [] -> env_slugs
+      is_binary(project_slug) -> [project_slug]
+      true -> []
+    end
+  end
+
+  defp explicit_project_slug?(value) when is_binary(value) do
+    case env_reference_name(value) do
+      {:ok, _env_name} -> false
+      :error -> String.trim(value) != ""
+    end
+  end
+
+  defp explicit_project_slug?(_value), do: false
+
+  defp normalize_project_slugs(values) when is_list(values) do
+    values
+    |> Enum.flat_map(&normalize_project_slugs/1)
+    |> Enum.uniq()
+  end
+
+  defp normalize_project_slugs(value) when is_binary(value) do
+    case resolve_env_value(value, nil) do
+      resolved when is_binary(resolved) ->
+        resolved
+        |> String.split(",", trim: true)
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == ""))
+        |> Enum.uniq()
+
+      _ ->
+        []
+    end
+  end
+
+  defp normalize_project_slugs(_values), do: []
 
   defp resolve_path_value(value, default) when is_binary(value) do
     case normalize_path_token(value) do

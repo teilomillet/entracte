@@ -79,6 +79,77 @@ defmodule SymphonyElixir.CLITest do
     assert_received {:workflow_set, ^expanded_path}
   end
 
+  test "loads explicit env file before starting the app" do
+    parent = self()
+    workflow_path = Path.expand("WORKFLOW.md")
+    env_path = Path.expand("runner.env")
+
+    deps = %{
+      file_regular?: fn path -> path == workflow_path end,
+      load_env_file: fn path ->
+        send(parent, {:env_file_loaded, path})
+        :ok
+      end,
+      set_workflow_file_path: fn _path -> :ok end,
+      set_logs_root: fn _path -> :ok end,
+      set_server_port_override: fn _port -> :ok end,
+      ensure_all_started: fn ->
+        send(parent, :started)
+        {:ok, [:symphony_elixir]}
+      end
+    }
+
+    assert :ok = CLI.evaluate([@ack_flag, "--env-file", "runner.env", "WORKFLOW.md"], deps)
+    assert_received {:env_file_loaded, ^env_path}
+    assert_received :started
+  end
+
+  test "auto-loads .env next to the workflow when present" do
+    parent = self()
+    workflow_path = Path.expand("tmp/project/WORKFLOW.md")
+    env_path = Path.expand("tmp/project/.env")
+
+    deps = %{
+      file_regular?: fn path -> path == workflow_path end,
+      load_env_file_if_present: fn path ->
+        send(parent, {:env_file_if_present, path})
+        :ok
+      end,
+      set_workflow_file_path: fn _path -> :ok end,
+      set_logs_root: fn _path -> :ok end,
+      set_server_port_override: fn _port -> :ok end,
+      ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
+    }
+
+    assert :ok = CLI.evaluate([@ack_flag, "tmp/project/WORKFLOW.md"], deps)
+    assert_received {:env_file_if_present, ^env_path}
+  end
+
+  test "returns env file errors before app startup" do
+    parent = self()
+
+    deps = %{
+      file_regular?: fn _path -> true end,
+      load_env_file: fn _path -> {:error, {:env_file_invalid_line, 2}} end,
+      set_workflow_file_path: fn _path ->
+        send(parent, :workflow_set)
+        :ok
+      end,
+      set_logs_root: fn _path -> :ok end,
+      set_server_port_override: fn _port -> :ok end,
+      ensure_all_started: fn ->
+        send(parent, :started)
+        {:ok, [:symphony_elixir]}
+      end
+    }
+
+    assert {:error, message} = CLI.evaluate([@ack_flag, "--env-file", "bad.env", "WORKFLOW.md"], deps)
+    assert message =~ "Failed to load env file"
+    assert message =~ "invalid assignment on line 2"
+    refute_received :workflow_set
+    refute_received :started
+  end
+
   test "accepts --logs-root and passes an expanded root to runtime deps" do
     parent = self()
 

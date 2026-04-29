@@ -2,7 +2,7 @@ defmodule SymphonyElixir.LiveE2ETest do
   use SymphonyElixir.TestSupport
 
   require Logger
-  alias SymphonyElixir.SSH
+  alias SymphonyElixir.{LinearLabelInstaller, SSH}
 
   @moduletag :live_e2e
   @moduletag timeout: 300_000
@@ -112,6 +112,42 @@ defmodule SymphonyElixir.LiveE2ETest do
   }
   """
 
+  @issue_labels_query """
+  query SymphonyLiveE2EIssueLabels {
+    issueLabels(first: 250, includeArchived: false) {
+      nodes {
+        id
+        name
+        team {
+          id
+        }
+      }
+    }
+  }
+  """
+
+  @update_issue_mutation """
+  mutation SymphonyLiveE2EUpdateIssue($id: String!, $input: IssueUpdateInput!) {
+    issueUpdate(id: $id, input: $input) {
+      success
+      issue {
+        id
+        identifier
+        state {
+          name
+          type
+        }
+        labels {
+          nodes {
+            id
+            name
+          }
+        }
+      }
+    }
+  }
+  """
+
   @complete_project_mutation """
   mutation SymphonyLiveE2ECompleteProject($id: String!, $statusId: String!, $completedAt: DateTime!) {
     projectUpdate(id: $id, input: {statusId: $statusId, completedAt: $completedAt}) {
@@ -128,6 +164,11 @@ defmodule SymphonyElixir.LiveE2ETest do
   @tag skip: @live_e2e_skip_reason
   test "creates a real Linear project and issue with an ssh worker" do
     run_live_issue_flow!(:ssh)
+  end
+
+  @tag skip: @live_e2e_skip_reason
+  test "orchestrator waits for ready label and stops when paused on a real Linear issue" do
+    run_live_dispatch_guardrail_flow!()
   end
 
   defp fetch_team!(team_key) do
@@ -158,6 +199,11 @@ defmodule SymphonyElixir.LiveE2ETest do
       [] -> ["Done", "Canceled", "Cancelled"]
       names -> names
     end
+  end
+
+  defp completed_issue_state!(%{"states" => %{"nodes" => states}}) when is_list(states) do
+    Enum.find(states, &(&1["type"] == "completed")) ||
+      flunk("expected team to expose at least one completed workflow state")
   end
 
   defp active_state_names(%{"states" => %{"nodes" => states}}) when is_list(states) do
@@ -246,6 +292,45 @@ defmodule SymphonyElixir.LiveE2ETest do
   end
 
   defp issue_has_comment?(_issue, _expected_body), do: false
+
+  defp fetch_issue_label_ids!(team_id, label_names) when is_binary(team_id) and is_list(label_names) do
+    wanted_names = MapSet.new(label_names, &String.downcase/1)
+
+    labels =
+      @issue_labels_query
+      |> graphql_data!(%{})
+      |> get_in(["issueLabels", "nodes"])
+      |> case do
+        labels when is_list(labels) -> labels
+        payload -> flunk("expected issue labels list, got: #{inspect(payload)}")
+      end
+
+    by_name =
+      labels
+      |> Enum.filter(fn label ->
+        get_in(label, ["team", "id"]) == team_id and MapSet.member?(wanted_names, String.downcase(label["name"] || ""))
+      end)
+      |> Map.new(fn label -> {String.downcase(label["name"]), label["id"]} end)
+
+    Enum.reduce(label_names, %{}, fn label_name, acc ->
+      normalized_name = String.downcase(label_name)
+
+      case Map.fetch(by_name, normalized_name) do
+        {:ok, label_id} -> Map.put(acc, normalized_name, label_id)
+        :error -> flunk("expected Linear label #{inspect(label_name)} to exist for team #{team_id}")
+      end
+    end)
+  end
+
+  defp update_issue!(issue_id, input) when is_binary(issue_id) and is_map(input) do
+    @update_issue_mutation
+    |> graphql_data!(%{id: issue_id, input: input})
+    |> fetch_successful_entity!("issueUpdate", "issue")
+  end
+
+  defp add_issue_label!(issue_id, label_id) when is_binary(issue_id) and is_binary(label_id) do
+    update_issue!(issue_id, %{addedLabelIds: [label_id]})
+  end
 
   defp update_entity(mutation, variables, mutation_name, entity_name) do
     case Client.graphql(mutation, variables) do
@@ -410,6 +495,39 @@ defmodule SymphonyElixir.LiveE2ETest do
     end
   end
 
+  defp refresh_orchestrator!(orchestrator_name) when is_atom(orchestrator_name) do
+    assert %{queued: true} = Orchestrator.request_refresh(orchestrator_name)
+
+    wait_for_live_snapshot!(orchestrator_name, fn
+      %{polling: %{checking?: false}} -> true
+      _snapshot -> false
+    end)
+  end
+
+  defp idle_snapshot?(%{running: [], polling: %{checking?: false}}), do: true
+  defp idle_snapshot?(_snapshot), do: false
+
+  defp wait_for_live_snapshot!(orchestrator_name, predicate, timeout_ms \\ 30_000)
+       when is_atom(orchestrator_name) and is_function(predicate, 1) do
+    deadline_ms = System.monotonic_time(:millisecond) + timeout_ms
+    do_wait_for_live_snapshot!(orchestrator_name, predicate, deadline_ms, nil)
+  end
+
+  defp do_wait_for_live_snapshot!(orchestrator_name, predicate, deadline_ms, last_snapshot) do
+    snapshot = Orchestrator.snapshot(orchestrator_name, 1_000)
+
+    if is_map(snapshot) and predicate.(snapshot) do
+      snapshot
+    else
+      if System.monotonic_time(:millisecond) < deadline_ms do
+        Process.sleep(100)
+        do_wait_for_live_snapshot!(orchestrator_name, predicate, deadline_ms, snapshot)
+      else
+        flunk("timed out waiting for live orchestrator snapshot; last snapshot: #{inspect(last_snapshot)}")
+      end
+    end
+  end
+
   defp read_worker_result!(%{worker_host: nil, workspace_path: workspace_path}, result_file)
        when is_binary(workspace_path) and is_binary(result_file) do
     File.read!(Path.join(workspace_path, result_file))
@@ -513,6 +631,132 @@ defmodule SymphonyElixir.LiveE2ETest do
     after
       restart_orchestrator_if_needed()
       cleanup_live_worker_setup(worker_setup)
+      Workflow.set_workflow_file_path(original_workflow_path)
+      File.rm_rf(test_root)
+    end
+  end
+
+  defp run_live_dispatch_guardrail_flow! do
+    run_id = "symphony-live-guardrail-#{System.unique_integer([:positive])}"
+    test_root = Path.join(System.tmp_dir!(), run_id)
+    workflow_root = Path.join(test_root, "workflow")
+    workflow_file = Path.join(workflow_root, "WORKFLOW.md")
+    worker_setup = live_worker_setup!(:local, run_id, test_root)
+    team_key = System.get_env("SYMPHONY_LIVE_LINEAR_TEAM_KEY") || @default_team_key
+    previous_linear_assignee = System.get_env("LINEAR_ASSIGNEE")
+    original_workflow_path = Workflow.workflow_file_path()
+    orchestrator_pid = Process.whereis(SymphonyElixir.Orchestrator)
+    orchestrator_name = Module.concat(__MODULE__, :"LiveGuardrailOrchestrator#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(workflow_root)
+
+    try do
+      System.delete_env("LINEAR_ASSIGNEE")
+
+      if is_pid(orchestrator_pid) do
+        assert :ok = Supervisor.terminate_child(SymphonyElixir.Supervisor, SymphonyElixir.Orchestrator)
+      end
+
+      Workflow.set_workflow_file_path(workflow_file)
+
+      write_workflow_file!(workflow_file,
+        tracker_api_token: "$LINEAR_API_KEY",
+        tracker_project_slug: "bootstrap",
+        workspace_root: worker_setup.workspace_root,
+        codex_command: "false",
+        observability_enabled: false
+      )
+
+      team = fetch_team!(team_key)
+      active_state = active_state!(team)
+      completed_issue_state = completed_issue_state!(team)
+      completed_project_status = completed_project_status!()
+      terminal_states = terminal_state_names(team)
+
+      project =
+        create_project!(
+          team["id"],
+          "Symphony Live Guardrail #{System.unique_integer([:positive])}"
+        )
+
+      issue =
+        create_issue!(
+          team["id"],
+          project["id"],
+          active_state["id"],
+          "Symphony live guardrail issue for #{project["name"]}"
+        )
+
+      write_workflow_file!(workflow_file,
+        tracker_api_token: "$LINEAR_API_KEY",
+        tracker_project_slug: project["slugId"],
+        tracker_active_states: active_state_names(team),
+        tracker_terminal_states: terminal_states,
+        workspace_root: worker_setup.workspace_root,
+        hook_before_run: "sleep 120",
+        hook_timeout_ms: 180_000,
+        codex_command: "false",
+        codex_stall_timeout_ms: 180_000,
+        observability_enabled: false,
+        prompt: "Live guardrail test for {{ issue.identifier }}"
+      )
+
+      assert {:ok, label_results} = LinearLabelInstaller.install_for_current_workflow(update_existing: false)
+      assert Enum.map(label_results, & &1.context.kind) == [:ready, :paused]
+
+      label_ids = fetch_issue_label_ids!(team["id"], ["agent-ready", "agent-paused"])
+      workspace_path = Path.join(worker_setup.workspace_root, issue.identifier)
+
+      {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+      refresh_orchestrator!(orchestrator_name)
+      idle_snapshot = wait_for_live_snapshot!(orchestrator_name, &idle_snapshot?/1)
+
+      assert idle_snapshot.running == []
+      refute File.exists?(workspace_path)
+
+      add_issue_label!(issue.id, label_ids["agent-ready"])
+      refresh_orchestrator!(orchestrator_name)
+
+      running_snapshot =
+        wait_for_live_snapshot!(orchestrator_name, fn snapshot ->
+          Enum.any?(snapshot.running, &(&1.issue_id == issue.id and is_binary(&1.workspace_path)))
+        end)
+
+      running_entry = Enum.find(running_snapshot.running, &(&1.issue_id == issue.id))
+      assert running_entry.identifier == issue.identifier
+      assert File.dir?(running_entry.workspace_path)
+
+      running_pid = :sys.get_state(pid).running |> Map.fetch!(issue.id) |> Map.fetch!(:pid)
+      assert Process.alive?(running_pid)
+
+      add_issue_label!(issue.id, label_ids["agent-paused"])
+      refresh_orchestrator!(orchestrator_name)
+
+      stopped_snapshot =
+        wait_for_live_snapshot!(orchestrator_name, fn snapshot ->
+          Enum.all?(snapshot.running, &(&1.issue_id != issue.id))
+        end)
+
+      assert stopped_snapshot.running == []
+      refute Process.alive?(running_pid)
+      assert File.dir?(running_entry.workspace_path)
+
+      state = :sys.get_state(pid)
+      refute Map.has_key?(state.running, issue.id)
+      refute MapSet.member?(state.claimed, issue.id)
+
+      update_issue!(issue.id, %{stateId: completed_issue_state["id"]})
+      assert :ok = complete_project(project["id"], completed_project_status["id"])
+    after
+      case Process.whereis(orchestrator_name) do
+        nil -> :ok
+        pid when is_pid(pid) -> Process.exit(pid, :normal)
+      end
+
+      restart_orchestrator_if_needed()
+      cleanup_live_worker_setup(worker_setup)
+      restore_env("LINEAR_ASSIGNEE", previous_linear_assignee)
       Workflow.set_workflow_file_path(original_workflow_path)
       File.rm_rf(test_root)
     end

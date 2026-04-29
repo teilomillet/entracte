@@ -1,7 +1,9 @@
 ---
 tracker:
   kind: linear
-  project_slug: "symphony-0c79b11b75ea"
+  api_key: $LINEAR_API_KEY
+  project_slug: $LINEAR_PROJECT_SLUG
+  assignee: $LINEAR_ASSIGNEE
   active_states:
     - Todo
     - In Progress
@@ -13,13 +15,18 @@ tracker:
     - Canceled
     - Duplicate
     - Done
+dispatch:
+  require_ready_label: true
+  ready_label: agent-ready
+  paused_label: agent-paused
 polling:
   interval_ms: 5000
 workspace:
-  root: ~/code/symphony-workspaces
+  root: $SYMPHONY_WORKSPACE_ROOT
 hooks:
   after_create: |
-    git clone --depth 1 https://github.com/openai/symphony .
+    : "${SOURCE_REPO_URL:?Set SOURCE_REPO_URL to the repository URL this runner should clone}"
+    git clone --depth 1 "$SOURCE_REPO_URL" .
     if command -v mise >/dev/null 2>&1; then
       cd elixir && mise trust && mise exec -- mix deps.get
     fi
@@ -29,14 +36,14 @@ agent:
   max_concurrent_agents: 10
   max_turns: 20
 codex:
-  command: codex --config shell_environment_policy.inherit=all --config 'model="gpt-5.5"' --config model_reasoning_effort=xhigh app-server
+  command: "${CODEX_BIN:-codex} --config shell_environment_policy.inherit=all --config 'model=\"gpt-5.5\"' --config model_reasoning_effort=xhigh app-server"
   approval_policy: never
   thread_sandbox: workspace-write
   turn_sandbox_policy:
     type: workspaceWrite
 ---
 
-You are working on a Linear ticket `{{ issue.identifier }}`
+You are working on a tracked ticket `{{ issue.identifier }}`
 
 {% if attempt %}
 Continuation context:

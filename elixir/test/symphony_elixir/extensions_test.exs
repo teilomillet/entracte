@@ -6,6 +6,7 @@ defmodule SymphonyElixir.ExtensionsTest do
 
   alias SymphonyElixir.Linear.Adapter
   alias SymphonyElixir.Tracker.Memory
+  alias SymphonyElixir.Tracker.Project
 
   @endpoint SymphonyElixirWeb.Endpoint
 
@@ -194,6 +195,11 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert {:ok, [^issue]} = SymphonyElixir.Tracker.fetch_issue_states_by_ids(["issue-1"])
     assert :ok = SymphonyElixir.Tracker.create_comment("issue-1", "comment")
     assert :ok = SymphonyElixir.Tracker.update_issue_state("issue-1", "Done")
+    assert {:ok, []} = SymphonyElixir.Tracker.list_projects()
+    assert {:ok, %{}} = SymphonyElixir.Tracker.bootstrap_env_entries([%Project{slug: "ignored"}])
+    assert {:ok, []} = SymphonyElixir.Tracker.install_labels()
+    assert {:ok, []} = SymphonyElixir.Tracker.install_issue_templates()
+    assert {:ok, []} = SymphonyElixir.Tracker.install_views()
     assert_receive {:memory_tracker_comment, "issue-1", "comment"}
     assert_receive {:memory_tracker_state_update, "issue-1", "Done"}
 
@@ -317,6 +323,328 @@ defmodule SymphonyElixir.ExtensionsTest do
     )
 
     assert {:error, :issue_update_failed} = Adapter.update_issue_state("issue-1", "Odd")
+  end
+
+  test "linear adapter exposes tracker setup callbacks" do
+    previous_api_key = System.get_env("LINEAR_API_KEY")
+
+    on_exit(fn ->
+      restore_env("LINEAR_API_KEY", previous_api_key)
+    end)
+
+    Application.put_env(:symphony_elixir, :linear_client_module, FakeLinearClient)
+
+    Process.put(
+      {FakeLinearClient, :graphql_result},
+      {:ok,
+       %{
+         "data" => %{
+           "projects" => %{
+             "nodes" => [
+               %{"id" => "ignored", "name" => "Ignored"},
+               %{
+                 "id" => "project-b",
+                 "name" => "Beta",
+                 "slugId" => "beta",
+                 "url" => "https://linear.app/project/beta",
+                 "teams" => %{"nodes" => []}
+               },
+               %{
+                 "id" => "project-a",
+                 "name" => "Alpha",
+                 "slugId" => "alpha",
+                 "url" => "https://linear.app/project/alpha",
+                 "teams" => %{"nodes" => [%{"id" => "team-1", "key" => "ENG", "name" => "Engineering"}]}
+               }
+             ]
+           }
+         }
+       }}
+    )
+
+    assert {:ok, [alpha, beta]} = Adapter.list_projects()
+    assert alpha.slug == "alpha"
+    assert alpha.team_key == "ENG"
+    assert alpha.metadata.provider == :linear
+    assert beta.slug == "beta"
+    assert beta.team_id == nil
+
+    assert_receive {:graphql_called, project_query, %{first: 100}}
+    assert project_query =~ "SymphonyBootstrapProjects"
+
+    Process.put({FakeLinearClient, :graphql_result}, {:ok, %{"errors" => [%{"message" => "bad"}]}})
+    assert {:error, {:linear_graphql_errors, [%{"message" => "bad"}]}} = Adapter.list_projects()
+
+    Process.put({FakeLinearClient, :graphql_result}, {:ok, %{"data" => %{}}})
+    assert {:error, :linear_projects_unexpected_payload} = Adapter.list_projects()
+
+    Process.put({FakeLinearClient, :graphql_result}, {:error, :boom})
+    assert {:error, :boom} = Adapter.list_projects()
+
+    System.put_env("LINEAR_API_KEY", "token")
+
+    assert {:ok, single_entries} = Adapter.bootstrap_env_entries([alpha], assignee: "me")
+    assert single_entries["LINEAR_API_KEY"] == "token"
+    assert single_entries["LINEAR_PROJECT_SLUG"] == "alpha"
+    assert single_entries["LINEAR_PROJECT_SLUGS"] == ""
+    assert single_entries["LINEAR_ASSIGNEE"] == "me"
+
+    System.put_env("LINEAR_API_KEY", "   ")
+    assert {:ok, blank_entries} = Adapter.bootstrap_env_entries([alpha], assignee: "")
+    refute Map.has_key?(blank_entries, "LINEAR_API_KEY")
+    refute Map.has_key?(blank_entries, "LINEAR_ASSIGNEE")
+
+    System.delete_env("LINEAR_API_KEY")
+    assert {:ok, multi_entries} = Adapter.bootstrap_env_entries([alpha, beta], [])
+    refute Map.has_key?(multi_entries, "LINEAR_API_KEY")
+    assert multi_entries["LINEAR_PROJECT_SLUG"] == ""
+    assert multi_entries["LINEAR_PROJECT_SLUGS"] == "alpha,beta"
+  end
+
+  test "linear adapter installs issue templates through provider implementation" do
+    Application.put_env(:symphony_elixir, :linear_client_module, FakeLinearClient)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "linear",
+      tracker_project_slug: "project-slug",
+      tracker_project_slugs: ["project-slug"]
+    )
+
+    Process.put(
+      {FakeLinearClient, :graphql_results},
+      [
+        {:ok,
+         %{
+           "data" => %{
+             "projects" => %{
+               "nodes" => [
+                 %{
+                   "id" => "project-1",
+                   "name" => "Project",
+                   "slugId" => "project-slug",
+                   "teams" => %{"nodes" => [%{"id" => "team-1", "key" => "ENG", "name" => "Engineering"}]}
+                 }
+               ]
+             }
+           }
+         }},
+        {:ok, %{"data" => %{"templates" => []}}},
+        {:ok,
+         %{
+           "data" => %{
+             "templateCreate" => %{
+               "success" => true,
+               "template" => %{"id" => "template-1", "type" => "issue", "name" => "Codex Agent Task"}
+             }
+           }
+         }}
+      ]
+    )
+
+    assert {:ok, [result]} = Adapter.install_issue_templates(update_existing: false)
+    assert result.action == :created
+    assert result.template.id == "template-1"
+    assert result.context.team_key == "ENG"
+    assert Enum.map(result.projects, & &1.slug) == ["project-slug"]
+  end
+
+  test "linear adapter installs dispatch labels through provider implementation" do
+    Application.put_env(:symphony_elixir, :linear_client_module, FakeLinearClient)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "linear",
+      tracker_project_slug: "project-slug",
+      tracker_project_slugs: ["project-slug"]
+    )
+
+    Process.put(
+      {FakeLinearClient, :graphql_results},
+      [
+        {:ok,
+         %{
+           "data" => %{
+             "projects" => %{
+               "nodes" => [
+                 %{
+                   "id" => "project-1",
+                   "name" => "Project",
+                   "slugId" => "project-slug",
+                   "url" => "https://linear.app/acme/project/project-slug",
+                   "teams" => %{"nodes" => [%{"id" => "team-1", "key" => "ENG", "name" => "Engineering"}]}
+                 }
+               ]
+             }
+           }
+         }},
+        {:ok, %{"data" => %{"issueLabels" => %{"nodes" => []}}}},
+        {:ok,
+         %{
+           "data" => %{
+             "issueLabelCreate" => %{
+               "success" => true,
+               "issueLabel" => %{
+                 "id" => "label-ready",
+                 "name" => "agent-ready",
+                 "description" => "Runner may spend credits on this issue.",
+                 "color" => "#2ECC71",
+                 "team" => %{"id" => "team-1", "key" => "ENG", "name" => "Engineering"}
+               }
+             }
+           }
+         }},
+        {:ok,
+         %{
+           "data" => %{
+             "issueLabelCreate" => %{
+               "success" => true,
+               "issueLabel" => %{
+                 "id" => "label-paused",
+                 "name" => "agent-paused",
+                 "description" => "Runner must not start or continue this issue.",
+                 "color" => "#E03131",
+                 "team" => %{"id" => "team-1", "key" => "ENG", "name" => "Engineering"}
+               }
+             }
+           }
+         }}
+      ]
+    )
+
+    assert {:ok, results} = Adapter.install_labels(update_existing: false)
+    assert Enum.map(results, & &1.action) == [:created, :created]
+    assert Enum.map(results, & &1.label.name) == ["agent-ready", "agent-paused"]
+    assert Enum.map(results, & &1.context.kind) == [:ready, :paused]
+    assert Enum.map(results, &(&1.projects |> List.first() |> Map.fetch!(:slug))) == ["project-slug", "project-slug"]
+  end
+
+  test "linear adapter installs saved views through provider implementation" do
+    Application.put_env(:symphony_elixir, :linear_client_module, FakeLinearClient)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "linear",
+      tracker_project_slug: "project-slug",
+      tracker_project_slugs: ["project-slug"]
+    )
+
+    Process.put(
+      {FakeLinearClient, :graphql_results},
+      [
+        {:ok,
+         %{
+           "data" => %{
+             "projects" => %{
+               "nodes" => [
+                 %{
+                   "id" => "project-1",
+                   "name" => "Project",
+                   "slugId" => "project-slug",
+                   "url" => "https://linear.app/acme/project/project-slug",
+                   "teams" => %{
+                     "nodes" => [
+                       %{
+                         "id" => "team-1",
+                         "key" => "ENG",
+                         "name" => "Engineering",
+                         "states" => %{"nodes" => [%{"id" => "state-1", "name" => "Backlog", "type" => "backlog", "position" => 0}]}
+                       }
+                     ]
+                   }
+                 }
+               ]
+             }
+           }
+         }},
+        {:ok, %{"data" => %{"customViews" => %{"nodes" => []}, "favorites" => %{"nodes" => []}}}},
+        {:ok,
+         %{
+           "data" => %{
+             "customViewCreate" => %{
+               "success" => true,
+               "customView" => %{
+                 "id" => "view-all",
+                 "name" => "Symphony: Project / All",
+                 "description" => "All issues in Project visible to the Symphony runner.",
+                 "filterData" => %{"project" => %{"id" => %{"eq" => "project-1"}}},
+                 "shared" => true,
+                 "slugId" => "view-all",
+                 "team" => %{"id" => "team-1", "key" => "ENG", "name" => "Engineering"}
+               }
+             }
+           }
+         }},
+        {:ok,
+         %{
+           "data" => %{
+             "customViewCreate" => %{
+               "success" => true,
+               "customView" => %{
+                 "id" => "view-ready",
+                 "name" => "Symphony: Project / Ready",
+                 "description" => "Issues in Project marked ready for the Symphony runner.",
+                 "filterData" => %{
+                   "project" => %{"id" => %{"eq" => "project-1"}},
+                   "labels" => %{"some" => %{"name" => %{"eq" => "agent-ready"}}}
+                 },
+                 "shared" => true,
+                 "slugId" => "view-ready",
+                 "team" => %{"id" => "team-1", "key" => "ENG", "name" => "Engineering"}
+               }
+             }
+           }
+         }},
+        {:ok,
+         %{
+           "data" => %{
+             "customViewCreate" => %{
+               "success" => true,
+               "customView" => %{
+                 "id" => "view-paused",
+                 "name" => "Symphony: Project / Paused",
+                 "description" => "Issues in Project paused for the Symphony runner.",
+                 "filterData" => %{
+                   "project" => %{"id" => %{"eq" => "project-1"}},
+                   "labels" => %{"some" => %{"name" => %{"eq" => "agent-paused"}}}
+                 },
+                 "shared" => true,
+                 "slugId" => "view-paused",
+                 "team" => %{"id" => "team-1", "key" => "ENG", "name" => "Engineering"}
+               }
+             }
+           }
+         }},
+        {:ok,
+         %{
+           "data" => %{
+             "customViewCreate" => %{
+               "success" => true,
+               "customView" => %{
+                 "id" => "view-backlog",
+                 "name" => "Symphony: Project / Backlog",
+                 "description" => "Issues in Project currently in Backlog.",
+                 "filterData" => %{
+                   "project" => %{"id" => %{"eq" => "project-1"}},
+                   "state" => %{"name" => %{"eq" => "Backlog"}}
+                 },
+                 "shared" => true,
+                 "slugId" => "view-backlog",
+                 "team" => %{"id" => "team-1", "key" => "ENG", "name" => "Engineering"}
+               }
+             }
+           }
+         }}
+      ]
+    )
+
+    assert {:ok, results} = Adapter.install_views(skip_favorites: true)
+    assert Enum.map(results, & &1.view.id) == ["view-all", "view-ready", "view-paused", "view-backlog"]
+    assert Enum.all?(results, &(&1.context.favorite_action == :skipped))
+
+    assert Enum.map(results, &(&1.projects |> List.first() |> Map.fetch!(:slug))) == [
+             "project-slug",
+             "project-slug",
+             "project-slug",
+             "project-slug"
+           ]
   end
 
   test "phoenix observability api preserves state, issue, and refresh responses" do

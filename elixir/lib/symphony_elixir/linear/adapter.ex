@@ -6,6 +6,11 @@ defmodule SymphonyElixir.Linear.Adapter do
   @behaviour SymphonyElixir.Tracker
 
   alias SymphonyElixir.Linear.Client
+  alias SymphonyElixir.LinearLabelInstaller
+  alias SymphonyElixir.LinearTemplateInstaller
+  alias SymphonyElixir.LinearViewInstaller
+  alias SymphonyElixir.Tracker
+  alias SymphonyElixir.Tracker.Project
 
   @create_comment_mutation """
   mutation SymphonyCreateComment($issueId: String!, $body: String!) {
@@ -30,6 +35,26 @@ defmodule SymphonyElixir.Linear.Adapter do
         states(filter: {name: {eq: $stateName}}, first: 1) {
           nodes {
             id
+          }
+        }
+      }
+    }
+  }
+  """
+
+  @projects_query """
+  query SymphonyBootstrapProjects($first: Int!) {
+    projects(first: $first) {
+      nodes {
+        id
+        name
+        slugId
+        url
+        teams(first: 10) {
+          nodes {
+            id
+            key
+            name
           }
         }
       }
@@ -73,9 +98,103 @@ defmodule SymphonyElixir.Linear.Adapter do
     end
   end
 
+  @spec list_projects() :: {:ok, [Project.t()]} | {:error, term()}
+  def list_projects do
+    case client_module().graphql(@projects_query, %{first: 100}) do
+      {:ok, %{"data" => %{"projects" => %{"nodes" => nodes}}}} when is_list(nodes) ->
+        {:ok, nodes |> Enum.map(&normalize_project/1) |> Enum.reject(&is_nil/1) |> Enum.sort_by(&project_sort_key/1)}
+
+      {:ok, %{"errors" => errors}} ->
+        {:error, {:linear_graphql_errors, errors}}
+
+      {:ok, _body} ->
+        {:error, :linear_projects_unexpected_payload}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @spec bootstrap_env_entries([Project.t()], keyword()) :: {:ok, %{String.t() => String.t()}} | {:error, term()}
+  def bootstrap_env_entries(projects, opts) when is_list(projects) and is_list(opts) do
+    entries =
+      %{}
+      |> maybe_put_existing_env("LINEAR_API_KEY")
+      |> put_project_entries(projects)
+      |> maybe_put("LINEAR_ASSIGNEE", Keyword.get(opts, :assignee, "me"))
+
+    {:ok, entries}
+  end
+
+  @spec install_issue_templates(keyword()) :: {:ok, [Tracker.TemplateInstallation.t()]} | {:error, term()}
+  def install_issue_templates(opts) when is_list(opts) do
+    LinearTemplateInstaller.install_for_current_workflow(opts)
+  end
+
+  @spec install_labels(keyword()) :: {:ok, [Tracker.LabelInstallation.t()]} | {:error, term()}
+  def install_labels(opts) when is_list(opts) do
+    LinearLabelInstaller.install_for_current_workflow(opts)
+  end
+
+  @spec install_views(keyword()) :: {:ok, [Tracker.ViewInstallation.t()]} | {:error, term()}
+  def install_views(opts) when is_list(opts) do
+    LinearViewInstaller.install_for_current_workflow(opts)
+  end
+
   defp client_module do
     Application.get_env(:symphony_elixir, :linear_client_module, Client)
   end
+
+  defp normalize_project(%{"slugId" => slug} = project) when is_binary(slug) and slug != "" do
+    team = project |> get_in(["teams", "nodes"]) |> first_team()
+
+    %Project{
+      id: project["id"],
+      name: project["name"],
+      slug: slug,
+      url: project["url"],
+      team_id: team && team["id"],
+      team_key: team && team["key"],
+      team_name: team && team["name"],
+      metadata: %{provider: :linear, raw: project, team: team}
+    }
+  end
+
+  defp normalize_project(_project), do: nil
+
+  defp first_team([team | _]) when is_map(team), do: team
+  defp first_team(_teams), do: nil
+
+  defp project_sort_key(project), do: {String.downcase(project.name || ""), project.slug}
+
+  defp maybe_put_existing_env(entries, key) do
+    maybe_put(entries, key, normalize_env(System.get_env(key)))
+  end
+
+  defp put_project_entries(entries, [project]) do
+    entries
+    |> Map.put("LINEAR_PROJECT_SLUG", project.slug)
+    |> Map.put("LINEAR_PROJECT_SLUGS", "")
+  end
+
+  defp put_project_entries(entries, projects) do
+    entries
+    |> Map.put("LINEAR_PROJECT_SLUG", "")
+    |> Map.put("LINEAR_PROJECT_SLUGS", Enum.map_join(projects, ",", & &1.slug))
+  end
+
+  defp maybe_put(entries, _key, nil), do: entries
+  defp maybe_put(entries, _key, ""), do: entries
+  defp maybe_put(entries, key, value), do: Map.put(entries, key, to_string(value))
+
+  defp normalize_env(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_env(_value), do: nil
 
   defp resolve_state_id(issue_id, state_name) do
     with {:ok, response} <-

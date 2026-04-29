@@ -7,7 +7,7 @@ defmodule SymphonyElixir.Config do
   alias SymphonyElixir.Workflow
 
   @default_prompt_template """
-  You are working on a Linear issue.
+  You are working on a tracked issue.
 
   Identifier: {{ issue.identifier }}
   Title: {{ issue.title }}
@@ -125,11 +125,20 @@ defmodule SymphonyElixir.Config do
       settings.tracker.kind == "linear" and not is_binary(settings.tracker.api_key) ->
         {:error, :missing_linear_api_token}
 
-      settings.tracker.kind == "linear" and not is_binary(settings.tracker.project_slug) ->
+      settings.tracker.kind == "linear" and configured_project_slugs(settings.tracker) == [] ->
         {:error, :missing_linear_project_slug}
 
       true ->
         :ok
+    end
+  end
+
+  defp configured_project_slugs(tracker) do
+    tracker
+    |> Map.get(:project_slugs, [])
+    |> case do
+      slugs when is_list(slugs) -> Enum.reject(slugs, &(&1 in [nil, ""]))
+      _ -> []
     end
   end
 

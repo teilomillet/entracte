@@ -1,0 +1,10 @@
+# Local runtime environment.
+.env
+.env.*
+!.env.example
+
+# OS/editor noise.
+.DS_Store
+*.swp
+*.swo
+*~

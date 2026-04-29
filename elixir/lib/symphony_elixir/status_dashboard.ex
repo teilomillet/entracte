@@ -394,15 +394,26 @@ defmodule SymphonyElixir.StatusDashboard do
 
   defp format_project_link_lines do
     project_part =
-      case Config.settings!().tracker.project_slug do
-        project_slug when is_binary(project_slug) and project_slug != "" ->
+      case configured_project_slugs(Config.settings!().tracker) do
+        [] ->
+          colorize("n/a", @ansi_gray)
+
+        [project_slug] ->
           colorize(linear_project_url(project_slug), @ansi_cyan)
 
-        _ ->
-          colorize("n/a", @ansi_gray)
+        project_slugs ->
+          project_slugs
+          |> Enum.map_join(", ", &linear_project_url/1)
+          |> colorize(@ansi_cyan)
       end
 
-    project_line = colorize("│ Project: ", @ansi_bold) <> project_part
+    project_label =
+      case configured_project_slugs(Config.settings!().tracker) do
+        slugs when length(slugs) > 1 -> "│ Projects: "
+        _ -> "│ Project: "
+      end
+
+    project_line = colorize(project_label, @ansi_bold) <> project_part
 
     case dashboard_url() do
       url when is_binary(url) ->
@@ -426,6 +437,34 @@ defmodule SymphonyElixir.StatusDashboard do
   defp format_project_refresh_line(_) do
     colorize("│ Next refresh: ", @ansi_bold) <> colorize("n/a", @ansi_gray)
   end
+
+  defp configured_project_slugs(tracker) do
+    case Map.get(tracker, :project_slugs, []) do
+      slugs when is_list(slugs) and slugs != [] ->
+        slugs
+        |> Enum.map(&normalize_project_slug/1)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq()
+
+      _ ->
+        tracker
+        |> Map.get(:project_slug)
+        |> normalize_project_slug()
+        |> case do
+          nil -> []
+          slug -> [slug]
+        end
+    end
+  end
+
+  defp normalize_project_slug(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      slug -> slug
+    end
+  end
+
+  defp normalize_project_slug(_value), do: nil
 
   defp linear_project_url(project_slug), do: "https://linear.app/project/#{project_slug}/issues"
 
@@ -1932,15 +1971,35 @@ defmodule SymphonyElixir.StatusDashboard do
   defp truncate(value, _max), do: value
 
   defp dashboard_enabled? do
-    if Code.ensure_loaded?(Mix) and function_exported?(Mix, :env, 0) do
-      try do
-        Mix.env() != :test
-      rescue
-        _ -> true
-      end
-    else
-      true
+    cond do
+      terminal_dashboard_disabled?() ->
+        false
+
+      Code.ensure_loaded?(Mix) and function_exported?(Mix, :env, 0) ->
+        mix_dashboard_enabled?()
+
+      true ->
+        true
     end
+  end
+
+  defp terminal_dashboard_disabled? do
+    case System.get_env("SYMPHONY_TERMINAL_DASHBOARD") do
+      value when is_binary(value) ->
+        value
+        |> String.trim()
+        |> String.downcase()
+        |> Kernel.in(["0", "false", "no", "off"])
+
+      _ ->
+        false
+    end
+  end
+
+  defp mix_dashboard_enabled? do
+    Mix.env() != :test
+  rescue
+    _ -> true
   end
 
   defp keyword_override(opts, key) do

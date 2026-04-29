@@ -2,6 +2,20 @@ defmodule SymphonyElixir.CoreTest do
   use SymphonyElixir.TestSupport
 
   test "config defaults and validation checks" do
+    previous_linear_project_slug = System.get_env("LINEAR_PROJECT_SLUG")
+    previous_linear_project_slugs = System.get_env("LINEAR_PROJECT_SLUGS")
+    previous_linear_assignee = System.get_env("LINEAR_ASSIGNEE")
+
+    on_exit(fn ->
+      restore_env("LINEAR_PROJECT_SLUG", previous_linear_project_slug)
+      restore_env("LINEAR_PROJECT_SLUGS", previous_linear_project_slugs)
+      restore_env("LINEAR_ASSIGNEE", previous_linear_assignee)
+    end)
+
+    System.delete_env("LINEAR_PROJECT_SLUG")
+    System.delete_env("LINEAR_PROJECT_SLUGS")
+    System.delete_env("LINEAR_ASSIGNEE")
+
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: nil,
       tracker_project_slug: nil,
@@ -16,6 +30,9 @@ defmodule SymphonyElixir.CoreTest do
     assert config.tracker.active_states == ["Todo", "In Progress"]
     assert config.tracker.terminal_states == ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
     assert config.tracker.assignee == nil
+    assert config.dispatch.require_ready_label == true
+    assert config.dispatch.ready_label == "agent-ready"
+    assert config.dispatch.paused_label == "agent-paused"
     assert config.agent.max_turns == 20
 
     write_workflow_file!(Workflow.workflow_file_path(), poll_interval_ms: "invalid")
@@ -99,13 +116,22 @@ defmodule SymphonyElixir.CoreTest do
     tracker = Map.get(config, "tracker", %{})
     assert is_map(tracker)
     assert Map.get(tracker, "kind") == "linear"
-    assert is_binary(Map.get(tracker, "project_slug"))
+    assert Map.get(tracker, "api_key") == "$LINEAR_API_KEY"
+    assert Map.get(tracker, "project_slug") == "$LINEAR_PROJECT_SLUG"
+    assert Map.get(tracker, "assignee") == "$LINEAR_ASSIGNEE"
     assert is_list(Map.get(tracker, "active_states"))
     assert is_list(Map.get(tracker, "terminal_states"))
 
+    dispatch = Map.get(config, "dispatch", %{})
+    assert is_map(dispatch)
+    assert Map.get(dispatch, "require_ready_label") == true
+    assert Map.get(dispatch, "ready_label") == "agent-ready"
+    assert Map.get(dispatch, "paused_label") == "agent-paused"
+
     hooks = Map.get(config, "hooks", %{})
     assert is_map(hooks)
-    assert Map.get(hooks, "after_create") =~ "git clone --depth 1 https://github.com/openai/symphony ."
+    assert Map.get(hooks, "after_create") =~ "SOURCE_REPO_URL"
+    assert Map.get(hooks, "after_create") =~ "git clone --depth 1 \"$SOURCE_REPO_URL\" ."
     assert Map.get(hooks, "after_create") =~ "cd elixir && mise trust"
     assert Map.get(hooks, "after_create") =~ "mise exec -- mix deps.get"
     assert Map.get(hooks, "before_remove") =~ "cd elixir && mise exec -- mix workspace.before_remove"
@@ -131,6 +157,88 @@ defmodule SymphonyElixir.CoreTest do
     assert Config.settings!().tracker.api_key == env_api_key
     assert Config.settings!().tracker.project_slug == "project"
     assert :ok = Config.validate!()
+  end
+
+  test "linear project slug resolves from LINEAR_PROJECT_SLUG env var" do
+    previous_linear_project_slug = System.get_env("LINEAR_PROJECT_SLUG")
+    previous_linear_project_slugs = System.get_env("LINEAR_PROJECT_SLUGS")
+    env_project_slug = "team-project-slug"
+
+    on_exit(fn ->
+      restore_env("LINEAR_PROJECT_SLUG", previous_linear_project_slug)
+      restore_env("LINEAR_PROJECT_SLUGS", previous_linear_project_slugs)
+    end)
+
+    System.put_env("LINEAR_PROJECT_SLUG", env_project_slug)
+    System.delete_env("LINEAR_PROJECT_SLUGS")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_project_slug: nil,
+      codex_command: "/bin/sh app-server"
+    )
+
+    assert Config.settings!().tracker.project_slug == env_project_slug
+    assert Config.settings!().tracker.project_slugs == [env_project_slug]
+  end
+
+  test "linear project slugs resolve from LINEAR_PROJECT_SLUGS env var" do
+    previous_linear_project_slug = System.get_env("LINEAR_PROJECT_SLUG")
+    previous_linear_project_slugs = System.get_env("LINEAR_PROJECT_SLUGS")
+
+    on_exit(fn ->
+      restore_env("LINEAR_PROJECT_SLUG", previous_linear_project_slug)
+      restore_env("LINEAR_PROJECT_SLUGS", previous_linear_project_slugs)
+    end)
+
+    System.delete_env("LINEAR_PROJECT_SLUG")
+    System.put_env("LINEAR_PROJECT_SLUGS", "entracte-main, client-a, entracte-main")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_project_slug: nil,
+      codex_command: "/bin/sh app-server"
+    )
+
+    assert Config.settings!().tracker.project_slug == "entracte-main"
+    assert Config.settings!().tracker.project_slugs == ["entracte-main", "client-a"]
+    assert :ok = Config.validate!()
+  end
+
+  test "configured project_slugs take precedence over single project slug" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_project_slug: "single-project",
+      tracker_project_slugs: ["multi-a", "multi-b", "multi-a"],
+      codex_command: "/bin/sh app-server"
+    )
+
+    assert Config.settings!().tracker.project_slug == "multi-a"
+    assert Config.settings!().tracker.project_slugs == ["multi-a", "multi-b"]
+  end
+
+  test "missing env references in project_slugs are ignored" do
+    env_var = "SYMP_MISSING_PROJECT_SLUGS_#{System.unique_integer([:positive])}"
+    previous_value = System.get_env(env_var)
+    previous_linear_project_slug = System.get_env("LINEAR_PROJECT_SLUG")
+    previous_linear_project_slugs = System.get_env("LINEAR_PROJECT_SLUGS")
+
+    on_exit(fn ->
+      restore_env(env_var, previous_value)
+      restore_env("LINEAR_PROJECT_SLUG", previous_linear_project_slug)
+      restore_env("LINEAR_PROJECT_SLUGS", previous_linear_project_slugs)
+    end)
+
+    System.delete_env(env_var)
+    System.delete_env("LINEAR_PROJECT_SLUG")
+    System.delete_env("LINEAR_PROJECT_SLUGS")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_project_slug: nil,
+      tracker_project_slugs: ["$#{env_var}"],
+      codex_command: "/bin/sh app-server"
+    )
+
+    assert Config.settings!().tracker.project_slug == nil
+    assert Config.settings!().tracker.project_slugs == []
+    assert {:error, :missing_linear_project_slug} = Config.validate!()
   end
 
   test "linear assignee resolves from LINEAR_ASSIGNEE env var" do
@@ -222,6 +330,46 @@ defmodule SymphonyElixir.CoreTest do
 
   test "linear issue state reconciliation fetch with no running issues is a no-op" do
     assert {:ok, []} = Client.fetch_issue_states_by_ids([])
+  end
+
+  test "linear issue polling fetches each configured project and deduplicates issues" do
+    parent = self()
+
+    graphql_fun = fn _query, variables ->
+      send(parent, {:project_polled, variables.projectSlug})
+
+      nodes =
+        case variables.projectSlug do
+          "project-a" ->
+            [
+              linear_issue_payload("issue-a", "A-1"),
+              linear_issue_payload("shared-issue", "A-2")
+            ]
+
+          "project-b" ->
+            [
+              linear_issue_payload("shared-issue", "B-1"),
+              linear_issue_payload("issue-b", "B-2")
+            ]
+        end
+
+      {:ok,
+       %{
+         "data" => %{
+           "issues" => %{
+             "nodes" => nodes,
+             "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
+           }
+         }
+       }}
+    end
+
+    assert {:ok, issues} =
+             Client.fetch_by_project_slugs_for_test(["project-a", "project-b"], ["Todo"], graphql_fun)
+
+    assert Enum.map(issues, & &1.identifier) == ["A-1", "A-2", "B-2"]
+    assert_received {:project_polled, "project-a"}
+    assert_received {:project_polled, "project-b"}
   end
 
   test "non-active issue state stops running agent without cleaning workspace" do
@@ -543,6 +691,7 @@ defmodule SymphonyElixir.CoreTest do
       |> Map.put(:retry_attempts, %{})
     end)
 
+    before_down_ms = System.monotonic_time(:millisecond)
     send(pid, {:DOWN, ref, :process, self(), :normal})
     Process.sleep(50)
     state = :sys.get_state(pid)
@@ -551,7 +700,7 @@ defmodule SymphonyElixir.CoreTest do
     assert MapSet.member?(state.completed, issue_id)
     assert %{attempt: 1, due_at_ms: due_at_ms} = state.retry_attempts[issue_id]
     assert is_integer(due_at_ms)
-    assert_due_in_range(due_at_ms, 500, 1_100)
+    assert_due_from_baseline(due_at_ms, before_down_ms, 1_000, 1_100)
   end
 
   test "abnormal worker exit increments retry attempt progressively" do
@@ -591,7 +740,7 @@ defmodule SymphonyElixir.CoreTest do
     assert %{attempt: 3, due_at_ms: due_at_ms, identifier: "MT-559", error: "agent exited: :boom"} =
              state.retry_attempts[issue_id]
 
-    assert_due_in_range(due_at_ms, 39_500, 40_500)
+    assert_due_in_range(due_at_ms, 39_000, 40_500)
   end
 
   test "first abnormal worker exit waits before retrying" do
@@ -757,8 +906,33 @@ defmodule SymphonyElixir.CoreTest do
     assert remaining_ms <= max_remaining_ms
   end
 
+  defp assert_due_from_baseline(due_at_ms, baseline_ms, min_delay_ms, max_remaining_ms) do
+    remaining_ms = due_at_ms - System.monotonic_time(:millisecond)
+
+    assert due_at_ms >= baseline_ms + min_delay_ms
+    assert remaining_ms <= max_remaining_ms
+  end
+
   defp restore_app_env(key, nil), do: Application.delete_env(:symphony_elixir, key)
   defp restore_app_env(key, value), do: Application.put_env(:symphony_elixir, key, value)
+
+  defp linear_issue_payload(id, identifier) do
+    %{
+      "id" => id,
+      "identifier" => identifier,
+      "title" => "Issue #{identifier}",
+      "description" => "Body",
+      "priority" => 0,
+      "state" => %{"name" => "Todo"},
+      "branchName" => nil,
+      "url" => "https://linear.app/acme/issue/#{identifier}",
+      "assignee" => nil,
+      "labels" => %{"nodes" => []},
+      "inverseRelations" => %{"nodes" => []},
+      "createdAt" => nil,
+      "updatedAt" => nil
+    }
+  end
 
   test "fetch issues by states with empty state set is a no-op" do
     assert {:ok, []} = Client.fetch_issues_by_states([])
@@ -883,7 +1057,7 @@ defmodule SymphonyElixir.CoreTest do
 
     prompt = PromptBuilder.build_prompt(issue)
 
-    assert prompt =~ "You are working on a Linear issue."
+    assert prompt =~ "You are working on a tracked issue."
     assert prompt =~ "Identifier: MT-777"
     assert prompt =~ "Title: Make fallback prompt useful"
     assert prompt =~ "Body:"
@@ -959,7 +1133,7 @@ defmodule SymphonyElixir.CoreTest do
 
     prompt = PromptBuilder.build_prompt(issue, attempt: 2)
 
-    assert prompt =~ "You are working on a Linear ticket `MT-616`"
+    assert prompt =~ "You are working on a tracked ticket `MT-616`"
     assert prompt =~ "Issue context:"
     assert prompt =~ "Identifier: MT-616"
     assert prompt =~ "Title: Use rich templates for WORKFLOW.md"

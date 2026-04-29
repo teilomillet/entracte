@@ -15,9 +15,10 @@ behavior.
 
 ## 1. Problem Statement
 
-Symphony is a long-running automation service that continuously reads work from an issue tracker
-(Linear in this specification version), creates an isolated workspace for each issue, and runs a
-coding agent session for that issue inside the workspace.
+Symphony is a long-running automation service that continuously reads work from an issue tracker,
+creates an isolated workspace for each issue, and runs a coding agent session for that issue inside
+the workspace. Linear is the first supported tracker adapter, but runtime components consume
+provider-neutral tracker primitives.
 
 The service solves four operational problems:
 
@@ -129,7 +130,7 @@ Symphony is easiest to port when kept in these layers:
 4. `Execution Layer` (workspace + agent subprocess)
    - Filesystem lifecycle, workspace preparation, coding-agent protocol.
 
-5. `Integration Layer` (Linear adapter)
+5. `Integration Layer` (tracker adapter)
    - API calls and normalization for tracker data.
 
 6. `Observability Layer` (logs + OPTIONAL status surface)
@@ -150,6 +151,8 @@ Symphony is easiest to port when kept in these layers:
 #### 4.1.1 Issue
 
 Normalized issue record used by orchestration, prompt rendering, and observability output.
+This is the canonical tracker primitive; provider adapters MUST normalize their native issue payloads
+into this shape before orchestration sees them.
 
 Fields:
 
@@ -176,7 +179,97 @@ Fields:
 - `created_at` (timestamp or null)
 - `updated_at` (timestamp or null)
 
-#### 4.1.2 Workflow Definition
+#### 4.1.2 Project
+
+Normalized tracker project identity used by bootstrap and setup flows.
+
+Fields:
+
+- `id` (string or null)
+- `name` (string or null)
+- `slug` (string or null)
+- `key` (string or null)
+- `url` (string or null)
+- `team_id`, `team_key`, `team_name` (strings or null)
+- `metadata` (map)
+  - Provider-specific data that MUST NOT be required by orchestration code.
+
+#### 4.1.3 Issue Template
+
+Normalized issue template identity used by tracker setup flows.
+
+Fields:
+
+- `id` (string or null)
+- `name` (string or null)
+- `description` (string or null)
+- `body` (string or null)
+- `url` (string or null)
+- `metadata` (map)
+  - Provider-specific data that MUST NOT be required by orchestration code.
+
+#### 4.1.4 Template Installation
+
+Provider-neutral result returned by tracker template setup.
+
+Fields:
+
+- `action`: `created`, `updated`, or `unchanged`
+- `template`: normalized issue template
+- `projects`: list of normalized tracker projects affected by the setup operation
+- `context`: provider-specific display context, such as a Linear team key
+
+#### 4.1.5 Label
+
+Normalized tracker label identity used by setup flows and dispatch guardrails.
+
+Fields:
+
+- `id` (string or null)
+- `name` (string or null)
+- `description` (string or null)
+- `color` (string or null)
+- `metadata` (map)
+  - Provider-specific data that MUST NOT be required by orchestration code.
+
+#### 4.1.6 Label Installation
+
+Provider-neutral result returned by tracker label setup.
+
+Fields:
+
+- `action`: `created`, `updated`, or `unchanged`
+- `label`: normalized tracker label
+- `projects`: list of normalized tracker projects affected by the setup operation
+- `context`: provider-specific display context, such as a Linear team key
+
+#### 4.1.7 View
+
+Normalized tracker saved view identity used by setup flows.
+
+Fields:
+
+- `id` (string or null)
+- `name` (string or null)
+- `description` (string or null)
+- `url` (string or null)
+- `slug` (string or null)
+- `filters` (map)
+- `metadata` (map)
+  - Provider-specific data that MUST NOT be required by orchestration code.
+
+#### 4.1.8 View Installation
+
+Provider-neutral result returned by tracker saved view setup.
+
+Fields:
+
+- `action`: `created`, `updated`, or `unchanged`
+- `view`: normalized tracker saved view
+- `projects`: list of normalized tracker projects affected by the setup operation
+- `context`: provider-specific display context, such as a Linear team key or navigation favorite id
+
+#### 4.1.9 Workflow Definition
 
 Parsed `WORKFLOW.md` payload:
 
@@ -185,7 +278,7 @@ Parsed `WORKFLOW.md` payload:
 - `prompt_template` (string)
   - Markdown body after front matter, trimmed.
 
-#### 4.1.3 Service Config (Typed View)
+#### 4.1.10 Service Config (Typed View)
 
 Typed runtime values derived from `WorkflowDefinition.config` plus environment resolution.
 
@@ -198,7 +291,7 @@ Examples:
 - coding-agent executable/args/timeouts
 - workspace hooks
 
-#### 4.1.4 Workspace
+#### 4.1.11 Workspace
 
 Filesystem workspace assigned to one issue identifier.
 
@@ -208,7 +301,7 @@ Fields (logical):
 - `workspace_key` (sanitized issue identifier)
 - `created_now` (boolean, used to gate `after_create` hook)
 
-#### 4.1.5 Run Attempt
+#### 4.1.12 Run Attempt
 
 One execution attempt for one issue.
 
@@ -222,7 +315,7 @@ Fields (logical):
 - `status`
 - `error` (OPTIONAL)
 
-#### 4.1.6 Live Session (Agent Session Metadata)
+#### 4.1.13 Live Session (Agent Session Metadata)
 
 State tracked while a coding-agent subprocess is running.
 
@@ -244,7 +337,7 @@ Fields:
 - `turn_count` (integer)
   - Number of coding-agent turns started within the current worker lifetime.
 
-#### 4.1.7 Retry Entry
+#### 4.1.14 Retry Entry
 
 Scheduled retry state for an issue.
 
@@ -257,7 +350,7 @@ Fields:
 - `timer_handle` (runtime-specific timer reference)
 - `error` (string or null)
 
-#### 4.1.8 Orchestrator Runtime State
+#### 4.1.15 Orchestrator Runtime State
 
 Single authoritative in-memory state owned by the orchestrator.
 
@@ -328,6 +421,7 @@ Returned workflow object:
 Top-level keys:
 
 - `tracker`
+- `dispatch`
 - `polling`
 - `workspace`
 - `hooks`
@@ -357,13 +451,31 @@ Fields:
   - Canonical environment variable for `tracker.kind == "linear"`: `LINEAR_API_KEY`.
   - If `$VAR_NAME` resolves to an empty string, treat the key as missing.
 - `project_slug` (string)
-  - REQUIRED for dispatch when `tracker.kind == "linear"`.
+- `project_slugs` (list of strings)
+  - Optional multi-project form for dispatch when `tracker.kind == "linear"`.
+  - When both forms are absent after environment resolution, dispatch MUST fail.
 - `active_states` (list of strings)
   - Default: `Todo`, `In Progress`
 - `terminal_states` (list of strings)
   - Default: `Closed`, `Cancelled`, `Canceled`, `Duplicate`, `Done`
 
-#### 5.3.2 `polling` (object)
+#### 5.3.2 `dispatch` (object)
+
+Fields:
+
+- `require_ready_label` (boolean)
+  - Default: `true`
+  - When true, an issue MUST have the configured ready label before dispatch.
+- `ready_label` (string)
+  - Default: `agent-ready`
+  - This label is explicit execution permission. Assignment alone is not enough to spend coding
+    agent credits.
+- `paused_label` (string)
+  - Default: `agent-paused`
+  - This label MUST block new dispatch. If it appears on a running issue, reconciliation MUST stop
+    the active run without treating the workspace as terminal.
+
+#### 5.3.3 `polling` (object)
 
 Fields:
 
@@ -371,7 +483,7 @@ Fields:
   - Default: `30000`
   - Changes SHOULD be re-applied at runtime and affect future tick scheduling without restart.
 
-#### 5.3.3 `workspace` (object)
+#### 5.3.4 `workspace` (object)
 
 Fields:
 
@@ -381,7 +493,7 @@ Fields:
   - Relative paths are resolved relative to the directory containing `WORKFLOW.md`.
   - The effective workspace root is normalized to an absolute path before use.
 
-#### 5.3.4 `hooks` (object)
+#### 5.3.5 `hooks` (object)
 
 Fields:
 
@@ -405,7 +517,7 @@ Fields:
   - Invalid values fail configuration validation.
   - Changes SHOULD be re-applied at runtime for future hook executions.
 
-#### 5.3.5 `agent` (object)
+#### 5.3.6 `agent` (object)
 
 Fields:
 
@@ -424,7 +536,7 @@ Fields:
   - State keys are normalized (`lowercase`) for lookup.
   - Invalid entries (non-positive or non-numeric) are ignored.
 
-#### 5.3.6 `codex` (object)
+#### 5.3.7 `codex` (object)
 
 Fields:
 
@@ -475,7 +587,7 @@ Template input variables:
 Fallback prompt behavior:
 
 - If the workflow prompt body is empty, the runtime MAY use a minimal default prompt
-  (`You are working on an issue from Linear.`).
+  (`You are working on a tracked issue.`).
 - Workflow file read/parse failures are configuration/validation errors and SHOULD NOT silently fall
   back to a prompt.
 
@@ -501,13 +613,18 @@ Dispatch gating behavior:
 Configuration is resolved in this order:
 
 1. Select the workflow file path (explicit runtime setting, otherwise cwd default).
-2. Parse YAML front matter into a raw config map.
-3. Apply built-in defaults for missing OPTIONAL fields.
-4. Resolve `$VAR_NAME` indirection only for config values that explicitly contain `$VAR_NAME`.
-5. Coerce and validate typed values.
+2. Optionally load implementation-defined local environment files before config resolution.
+3. Parse YAML front matter into a raw config map.
+4. Apply built-in defaults for missing OPTIONAL fields.
+5. Resolve `$VAR_NAME` indirection only for config values that explicitly contain `$VAR_NAME`.
+6. Coerce and validate typed values.
 
 Environment variables do not globally override YAML values. They are used only when a config value
 explicitly references them.
+
+Implementations that support local environment files MUST document the file path, precedence, and
+whether loaded values override the existing process environment. Environment files MUST NOT be
+required for core configuration conformance.
 
 Value coercion semantics:
 
@@ -561,7 +678,8 @@ Validation checks:
 - Workflow file can be loaded and parsed.
 - `tracker.kind` is present and supported.
 - `tracker.api_key` is present after `$` resolution.
-- `tracker.project_slug` is present when REQUIRED by the selected tracker kind.
+- `tracker.project_slug` or `tracker.project_slugs` is present when REQUIRED by the selected tracker kind.
+- `dispatch.ready_label` and `dispatch.paused_label` are present if dispatch labels are implemented.
 - `codex.command` is present and non-empty.
 
 ### 6.4 Core Config Fields Summary (Cheat Sheet)
@@ -573,9 +691,13 @@ not require recognizing or validating extension fields unless that extension is 
 - `tracker.kind`: string, REQUIRED, currently `linear`
 - `tracker.endpoint`: string, default `https://api.linear.app/graphql` when `tracker.kind=linear`
 - `tracker.api_key`: string or `$VAR`, canonical env `LINEAR_API_KEY` when `tracker.kind=linear`
-- `tracker.project_slug`: string, REQUIRED when `tracker.kind=linear`
+- `tracker.project_slug`: string shorthand for one Linear project when `tracker.kind=linear`
+- `tracker.project_slugs`: list of strings for one or more Linear projects when `tracker.kind=linear`
 - `tracker.active_states`: list of strings, default `["Todo", "In Progress"]`
 - `tracker.terminal_states`: list of strings, default `["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]`
+- `dispatch.require_ready_label`: boolean, default `true`
+- `dispatch.ready_label`: string, default `"agent-ready"`
+- `dispatch.paused_label`: string, default `"agent-paused"`
 - `polling.interval_ms`: integer, default `30000`
 - `workspace.root`: path resolved to absolute, default `<system-temp>/symphony_workspaces`
 - `hooks.after_create`: shell script or null
@@ -726,6 +848,10 @@ An issue is dispatch-eligible only if all are true:
 - Per-state concurrency slots are available.
 - Blocker rule for `Todo` state passes:
   - If the issue state is `Todo`, do not dispatch when any blocker is non-terminal.
+- Dispatch label rule passes:
+  - If `dispatch.require_ready_label` is true, the issue has `dispatch.ready_label`.
+  - The issue does not have `dispatch.paused_label`.
+  - Label comparisons SHOULD be case-insensitive after trimming.
 
 Sorting order (stable intent):
 
@@ -793,6 +919,7 @@ Part B: Tracker state refresh
 - Fetch current issue states for all running issue IDs.
 - For each running issue:
   - If tracker state is terminal: terminate worker and clean workspace.
+  - If the issue has `dispatch.paused_label`: terminate worker without terminal workspace cleanup.
   - If tracker state is still active: update the in-memory issue snapshot.
   - If tracker state is neither active nor terminal: terminate worker without workspace cleanup.
 - If state refresh fails, keep workers running and try again on the next tick.
@@ -1130,20 +1257,42 @@ Note:
 
 - Workspaces are intentionally preserved after successful runs.
 
-## 11. Issue Tracker Integration Contract (Linear-Compatible)
+## 11. Issue Tracker Integration Contract
+
+Tracker integrations are split into provider-neutral primitives and provider-specific adapters.
+The adapter owns transport, authentication, query language, pagination, and provider drift. The rest
+of the runtime owns only the primitives from Section 4.
 
 ### 11.1 REQUIRED Operations
 
 An implementation MUST support these tracker adapter operations:
 
 1. `fetch_candidate_issues()`
-   - Return issues in configured active states for a configured project.
+   - Return issues in configured active states for the configured project or projects.
 
 2. `fetch_issues_by_states(state_names)`
    - Used for startup terminal cleanup.
 
 3. `fetch_issue_states_by_ids(issue_ids)`
    - Used for active-run reconciliation.
+
+4. `list_projects()`
+   - Used by bootstrap to discover available tracker projects.
+
+5. `bootstrap_env_entries(projects, opts)`
+   - Returns provider-specific env keys that should be written for the selected projects.
+
+6. `install_issue_templates(opts)`
+   - Creates, updates, or confirms configured tracker issue templates and returns normalized
+     template installation results.
+
+7. `install_labels(opts)`
+   - Creates, updates, or confirms configured tracker dispatch labels and returns normalized label
+     installation results.
+
+8. `install_views(opts)`
+   - Creates, updates, or confirms configured tracker saved views and returns normalized view
+     installation results.
 
 ### 11.2 Query Semantics (Linear)
 
@@ -1152,9 +1301,15 @@ Linear-specific requirements for `tracker.kind == "linear"`:
 - `tracker.kind == "linear"`
 - GraphQL endpoint (default `https://api.linear.app/graphql`)
 - Auth token sent in `Authorization` header
-- `tracker.project_slug` maps to Linear project `slugId`
+- `tracker.project_slug` and each entry in `tracker.project_slugs` map to Linear project `slugId`
 - Candidate issue query filters project using `project: { slugId: { eq: $projectSlug } }`
 - Issue-state refresh query uses GraphQL issue IDs with variable type `[ID!]`
+- Label setup SHOULD create team-scoped Linear issue labels matching `dispatch.ready_label` and
+  `dispatch.paused_label` for each configured project team.
+- Saved view setup SHOULD create shared Linear custom views for each configured project, including an
+  all-issues view, ready/paused label views, and one view per non-canceled team workflow state. When
+  Linear favorites are available, setup SHOULD add those views under a stable `Symphony` sidebar
+  folder for the authenticated user.
 - Pagination REQUIRED for candidate issues
 - Page size default: `50`
 - Network timeout: `30000 ms`
@@ -2039,6 +2194,7 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`. Bulle
 
 - CLI accepts a positional workflow path argument (`path-to-WORKFLOW.md`)
 - CLI uses `./WORKFLOW.md` when no workflow path argument is provided
+- CLI MAY accept an implementation-defined local environment file flag
 - CLI errors on nonexistent explicit workflow path or missing default `./WORKFLOW.md`
 - CLI surfaces startup failure cleanly
 - CLI exits with success when application starts and shuts down normally

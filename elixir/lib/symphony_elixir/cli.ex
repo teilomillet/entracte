@@ -3,18 +3,20 @@ defmodule SymphonyElixir.CLI do
   Escript entrypoint for running Symphony with an explicit WORKFLOW.md path.
   """
 
-  alias SymphonyElixir.LogFile
+  alias SymphonyElixir.{EnvFile, LogFile}
 
   @acknowledgement_switch :i_understand_that_this_will_be_running_without_the_usual_guardrails
-  @switches [{@acknowledgement_switch, :boolean}, logs_root: :string, port: :integer]
+  @switches [{@acknowledgement_switch, :boolean}, env_file: :string, logs_root: :string, port: :integer]
 
   @type ensure_started_result :: {:ok, [atom()]} | {:error, term()}
   @type deps :: %{
-          file_regular?: (String.t() -> boolean()),
-          set_workflow_file_path: (String.t() -> :ok | {:error, term()}),
-          set_logs_root: (String.t() -> :ok | {:error, term()}),
-          set_server_port_override: (non_neg_integer() | nil -> :ok | {:error, term()}),
-          ensure_all_started: (-> ensure_started_result())
+          required(:file_regular?) => (String.t() -> boolean()),
+          optional(:load_env_file) => (String.t() -> :ok | {:error, term()}),
+          optional(:load_env_file_if_present) => (String.t() -> :ok | {:error, term()}),
+          required(:set_workflow_file_path) => (String.t() -> :ok | {:error, term()}),
+          required(:set_logs_root) => (String.t() -> :ok | {:error, term()}),
+          required(:set_server_port_override) => (non_neg_integer() | nil -> :ok | {:error, term()}),
+          required(:ensure_all_started) => (-> ensure_started_result())
         }
 
   @spec main([String.t()]) :: no_return()
@@ -33,17 +35,23 @@ defmodule SymphonyElixir.CLI do
   def evaluate(args, deps \\ runtime_deps()) do
     case OptionParser.parse(args, strict: @switches) do
       {opts, [], []} ->
-        with :ok <- require_guardrails_acknowledgement(opts),
-             :ok <- maybe_set_logs_root(opts, deps),
-             :ok <- maybe_set_server_port(opts, deps) do
-          run(Path.expand("WORKFLOW.md"), deps)
-        end
+        workflow_path = Path.expand("WORKFLOW.md")
 
-      {opts, [workflow_path], []} ->
         with :ok <- require_guardrails_acknowledgement(opts),
+             :ok <- maybe_load_env_file(opts, workflow_path, deps),
              :ok <- maybe_set_logs_root(opts, deps),
              :ok <- maybe_set_server_port(opts, deps) do
           run(workflow_path, deps)
+        end
+
+      {opts, [workflow_path], []} ->
+        expanded_workflow_path = Path.expand(workflow_path)
+
+        with :ok <- require_guardrails_acknowledgement(opts),
+             :ok <- maybe_load_env_file(opts, expanded_workflow_path, deps),
+             :ok <- maybe_set_logs_root(opts, deps),
+             :ok <- maybe_set_server_port(opts, deps) do
+          run(expanded_workflow_path, deps)
         end
 
       _ ->
@@ -72,18 +80,78 @@ defmodule SymphonyElixir.CLI do
 
   @spec usage_message() :: String.t()
   defp usage_message do
-    "Usage: symphony [--logs-root <path>] [--port <port>] [path-to-WORKFLOW.md]"
+    "Usage: symphony [--env-file <path>] [--logs-root <path>] [--port <port>] [path-to-WORKFLOW.md]"
   end
 
   @spec runtime_deps() :: deps()
   defp runtime_deps do
     %{
       file_regular?: &File.regular?/1,
+      load_env_file: &EnvFile.load/1,
+      load_env_file_if_present: &EnvFile.load_if_present/1,
       set_workflow_file_path: &SymphonyElixir.Workflow.set_workflow_file_path/1,
       set_logs_root: &set_logs_root/1,
       set_server_port_override: &set_server_port_override/1,
       ensure_all_started: fn -> Application.ensure_all_started(:symphony_elixir) end
     }
+  end
+
+  defp maybe_load_env_file(opts, workflow_path, deps) do
+    case Keyword.get_values(opts, :env_file) do
+      [] ->
+        workflow_path
+        |> Path.dirname()
+        |> Path.join(".env")
+        |> load_env_file_if_present(deps)
+
+      values ->
+        env_file = values |> List.last() |> String.trim()
+
+        if env_file == "" do
+          {:error, usage_message()}
+        else
+          env_file
+          |> Path.expand()
+          |> load_env_file(deps)
+        end
+    end
+  end
+
+  defp load_env_file(path, deps) do
+    loader = Map.get(deps, :load_env_file, &EnvFile.load/1)
+
+    case loader.(path) do
+      :ok -> :ok
+      {:error, reason} -> {:error, format_env_file_error(path, reason)}
+    end
+  end
+
+  defp load_env_file_if_present(path, deps) do
+    loader = Map.get(deps, :load_env_file_if_present, &EnvFile.load_if_present/1)
+
+    case loader.(path) do
+      :ok -> :ok
+      {:error, reason} -> {:error, format_env_file_error(path, reason)}
+    end
+  end
+
+  defp format_env_file_error(path, reason) do
+    case reason do
+      {:env_file_read_failed, failed_path, raw_reason} ->
+        "Failed to load env file #{failed_path}: #{inspect(raw_reason)}"
+
+      {:env_file_invalid_line, line_number} ->
+        "Failed to load env file #{path}: invalid assignment on line #{line_number}"
+
+      {:env_file_invalid_key, line_number, key} ->
+        "Failed to load env file #{path}: invalid key #{inspect(key)} on line #{line_number}"
+
+      {:env_file_unclosed_quote, line_number} ->
+        "Failed to load env file #{path}: unclosed quote on line #{line_number}"
+
+      other ->
+        "Failed to load env file #{path}: #{inspect(other)}"
+    end
   end
 
   defp maybe_set_logs_root(opts, deps) do
@@ -170,7 +238,7 @@ defmodule SymphonyElixir.CLI do
   end
 
   @spec wait_for_shutdown() :: no_return()
-  defp wait_for_shutdown do
+  def wait_for_shutdown do
     case Process.whereis(SymphonyElixir.Supervisor) do
       nil ->
         IO.puts(:stderr, "Symphony supervisor is not running")

@@ -1,9 +1,11 @@
 defmodule SymphonyElixir.WorkspaceAndConfigTest do
   use SymphonyElixir.TestSupport
+
   alias Ecto.Changeset
   alias SymphonyElixir.Config.Schema
   alias SymphonyElixir.Config.Schema.{Codex, StringOrMap}
   alias SymphonyElixir.Linear.Client
+  alias SymphonyElixir.Linear.Issue, as: LinearIssue
 
   test "workspace bootstrap can be implemented in after_create hook" do
     test_root =
@@ -295,7 +297,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert :ok = Workspace.remove_issue_workspaces(nil)
   end
 
-  test "linear issue helpers" do
+  test "tracker issue helpers" do
     issue = %Issue{
       id: "abc",
       labels: ["frontend", "infra"],
@@ -305,6 +307,12 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert Issue.label_names(issue) == ["frontend", "infra"]
     assert issue.labels == ["frontend", "infra"]
     refute issue.assigned_to_worker
+  end
+
+  test "linear issue helpers delegate to tracker issue primitives" do
+    issue = %Issue{id: "abc", labels: ["compat"]}
+
+    assert LinearIssue.label_names(issue) == ["compat"]
   end
 
   test "linear client normalizes blockers from inverse relations" do
@@ -552,10 +560,109 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       identifier: "MT-1003",
       title: "Ready work",
       state: "Todo",
+      labels: ["agent-ready"],
       blocked_by: [%{id: "blocker-2", identifier: "MT-1004", state: "Closed"}]
     }
 
     assert Orchestrator.should_dispatch_issue_for_test(issue, state)
+  end
+
+  test "dispatch label gate requires ready and blocks paused issues" do
+    state = %Orchestrator.State{
+      max_concurrent_agents: 3,
+      running: %{},
+      claimed: MapSet.new(),
+      codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      retry_attempts: %{}
+    }
+
+    base_issue = %Issue{
+      id: "label-gated-1",
+      identifier: "MT-1008",
+      title: "Label gated work",
+      state: "Todo",
+      blocked_by: []
+    }
+
+    refute Orchestrator.should_dispatch_issue_for_test(base_issue, state)
+    assert Orchestrator.should_dispatch_issue_for_test(%{base_issue | labels: ["agent-ready"]}, state)
+    refute Orchestrator.should_dispatch_issue_for_test(%{base_issue | labels: ["agent-ready", "agent-paused"]}, state)
+  end
+
+  test "dispatch guardrail canary keeps backlog idle until ready and stops paused active work" do
+    workspace_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-dispatch-canary-#{System.unique_integer([:positive])}"
+      )
+
+    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+
+    base_state = %Orchestrator.State{
+      max_concurrent_agents: 3,
+      running: %{},
+      claimed: MapSet.new(),
+      codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      retry_attempts: %{}
+    }
+
+    issue = %Issue{
+      id: "guardrail-canary-1",
+      identifier: "MT-CANARY",
+      title: "Guardrail canary",
+      state: "Todo",
+      blocked_by: []
+    }
+
+    refute Orchestrator.should_dispatch_issue_for_test(issue, base_state)
+
+    ready_issue = %{issue | labels: ["agent-ready"]}
+    assert Orchestrator.should_dispatch_issue_for_test(ready_issue, base_state)
+
+    paused_ready_issue = %{ready_issue | labels: ["agent-ready", "agent-paused"]}
+    refute Orchestrator.should_dispatch_issue_for_test(paused_ready_issue, base_state)
+
+    {:ok, workspace} = Workspace.create_for_issue(ready_issue)
+    assert File.dir?(workspace)
+
+    {:ok, worker_pid} =
+      Task.Supervisor.start_child(SymphonyElixir.TaskSupervisor, fn ->
+        Process.sleep(:infinity)
+      end)
+
+    on_exit(fn ->
+      if Process.alive?(worker_pid) do
+        Task.Supervisor.terminate_child(SymphonyElixir.TaskSupervisor, worker_pid)
+      end
+
+      File.rm_rf(workspace_root)
+    end)
+
+    running_issue = %{ready_issue | state: "In Progress"}
+
+    running_state = %{
+      base_state
+      | running: %{
+          issue.id => %{
+            pid: worker_pid,
+            ref: make_ref(),
+            identifier: issue.identifier,
+            issue: running_issue,
+            started_at: DateTime.utc_now()
+          }
+        },
+        claimed: MapSet.put(base_state.claimed, issue.id),
+        retry_attempts: %{issue.id => %{attempt: 1, due_at_ms: System.monotonic_time(:millisecond), timer_ref: make_ref()}}
+    }
+
+    paused_running_issue = %{running_issue | labels: ["agent-ready", "agent-paused"]}
+    stopped_state = Orchestrator.reconcile_issue_states_for_test([paused_running_issue], running_state)
+
+    refute Map.has_key?(stopped_state.running, issue.id)
+    refute MapSet.member?(stopped_state.claimed, issue.id)
+    refute Map.has_key?(stopped_state.retry_attempts, issue.id)
+    assert File.dir?(workspace)
+    assert_worker_stopped(worker_pid)
   end
 
   test "dispatch revalidation skips stale todo issue once a non-terminal blocker appears" do
@@ -564,6 +671,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       identifier: "MT-1005",
       title: "Stale blocked work",
       state: "Todo",
+      labels: ["agent-ready"],
       blocked_by: []
     }
 
@@ -572,6 +680,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       identifier: "MT-1005",
       title: "Stale blocked work",
       state: "Todo",
+      labels: ["agent-ready"],
       blocked_by: [%{id: "blocker-3", identifier: "MT-1006", state: "In Progress"}]
     }
 
@@ -721,8 +830,18 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
   test "config reads defaults for optional settings" do
     previous_linear_api_key = System.get_env("LINEAR_API_KEY")
-    on_exit(fn -> restore_env("LINEAR_API_KEY", previous_linear_api_key) end)
+    previous_linear_project_slug = System.get_env("LINEAR_PROJECT_SLUG")
+    previous_linear_project_slugs = System.get_env("LINEAR_PROJECT_SLUGS")
+
+    on_exit(fn ->
+      restore_env("LINEAR_API_KEY", previous_linear_api_key)
+      restore_env("LINEAR_PROJECT_SLUG", previous_linear_project_slug)
+      restore_env("LINEAR_PROJECT_SLUGS", previous_linear_project_slugs)
+    end)
+
     System.delete_env("LINEAR_API_KEY")
+    System.delete_env("LINEAR_PROJECT_SLUG")
+    System.delete_env("LINEAR_PROJECT_SLUGS")
 
     write_workflow_file!(Workflow.workflow_file_path(),
       workspace_root: nil,
@@ -741,6 +860,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert config.tracker.endpoint == "https://api.linear.app/graphql"
     assert config.tracker.api_key == nil
     assert config.tracker.project_slug == nil
+    assert config.tracker.project_slugs == []
     assert config.workspace.root == Path.join(System.tmp_dir!(), "symphony_workspaces")
     assert config.worker.max_concurrent_agents_per_host == nil
     assert config.agent.max_concurrent_agents == 10
@@ -890,29 +1010,39 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   test "config resolves $VAR references for env-backed secret and path values" do
     workspace_env_var = "SYMP_WORKSPACE_ROOT_#{System.unique_integer([:positive])}"
     api_key_env_var = "SYMP_LINEAR_API_KEY_#{System.unique_integer([:positive])}"
+    project_slug_env_var = "SYMP_LINEAR_PROJECT_SLUG_#{System.unique_integer([:positive])}"
     workspace_root = Path.join("/tmp", "symphony-workspace-root")
     api_key = "resolved-secret"
+    project_slug = "resolved-project"
     codex_bin = Path.join(["~", "bin", "codex"])
 
     previous_workspace_root = System.get_env(workspace_env_var)
     previous_api_key = System.get_env(api_key_env_var)
+    previous_project_slug = System.get_env(project_slug_env_var)
+    previous_linear_project_slugs = System.get_env("LINEAR_PROJECT_SLUGS")
 
     System.put_env(workspace_env_var, workspace_root)
     System.put_env(api_key_env_var, api_key)
+    System.put_env(project_slug_env_var, project_slug)
+    System.delete_env("LINEAR_PROJECT_SLUGS")
 
     on_exit(fn ->
       restore_env(workspace_env_var, previous_workspace_root)
       restore_env(api_key_env_var, previous_api_key)
+      restore_env(project_slug_env_var, previous_project_slug)
+      restore_env("LINEAR_PROJECT_SLUGS", previous_linear_project_slugs)
     end)
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: "$#{api_key_env_var}",
+      tracker_project_slug: "$#{project_slug_env_var}",
       workspace_root: "$#{workspace_env_var}",
       codex_command: "#{codex_bin} app-server"
     )
 
     config = Config.settings!()
     assert config.tracker.api_key == api_key
+    assert config.tracker.project_slug == project_slug
     assert config.workspace.root == Path.expand(workspace_root)
     assert config.codex.command == "#{codex_bin} app-server"
   end
@@ -1303,4 +1433,17 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       File.rm_rf(test_root)
     end
   end
+
+  defp assert_worker_stopped(pid, attempts \\ 20)
+
+  defp assert_worker_stopped(pid, attempts) when attempts > 0 do
+    if Process.alive?(pid) do
+      Process.sleep(10)
+      assert_worker_stopped(pid, attempts - 1)
+    else
+      refute Process.alive?(pid)
+    end
+  end
+
+  defp assert_worker_stopped(pid, 0), do: refute(Process.alive?(pid))
 end

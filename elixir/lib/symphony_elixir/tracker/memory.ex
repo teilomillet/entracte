@@ -5,7 +5,7 @@ defmodule SymphonyElixir.Tracker.Memory do
 
   @behaviour SymphonyElixir.Tracker
 
-  alias SymphonyElixir.Linear.Issue
+  alias SymphonyElixir.Tracker.Issue
 
   @spec fetch_candidate_issues() :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_candidate_issues do
@@ -46,6 +46,21 @@ defmodule SymphonyElixir.Tracker.Memory do
     send_event({:memory_tracker_state_update, issue_id, state_name})
     :ok
   end
+
+  @spec list_projects() :: {:ok, []} | {:error, term()}
+  def list_projects, do: {:ok, []}
+
+  @spec bootstrap_env_entries([term()], keyword()) :: {:ok, %{}} | {:error, term()}
+  def bootstrap_env_entries(_projects, _opts), do: {:ok, %{}}
+
+  @spec install_labels(keyword()) :: {:ok, []} | {:error, term()}
+  def install_labels(_opts), do: {:ok, []}
+
+  @spec install_issue_templates(keyword()) :: {:ok, []} | {:error, term()}
+  def install_issue_templates(_opts), do: {:ok, []}
+
+  @spec install_views(keyword()) :: {:ok, []} | {:error, term()}
+  def install_views(_opts), do: {:ok, []}
 
   defp configured_issues do
     Application.get_env(:symphony_elixir, :memory_tracker_issues, [])

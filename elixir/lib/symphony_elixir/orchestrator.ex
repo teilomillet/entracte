@@ -8,7 +8,7 @@ defmodule SymphonyElixir.Orchestrator do
   import Bitwise, only: [<<<: 2]
 
   alias SymphonyElixir.{AgentRunner, Config, StatusDashboard, Tracker, Workspace}
-  alias SymphonyElixir.Linear.Issue
+  alias SymphonyElixir.Tracker.Issue
 
   @continuation_retry_delay_ms 1_000
   @failure_retry_base_ms 10_000
@@ -351,6 +351,11 @@ defmodule SymphonyElixir.Orchestrator do
 
         terminate_running_issue(state, issue.id, true)
 
+      issue_paused_by_dispatch_label?(issue) ->
+        Logger.info("Issue paused by dispatch label: #{issue_context(issue)} state=#{issue.state}; stopping active agent")
+
+        terminate_running_issue(state, issue.id, false)
+
       !issue_routable_to_worker?(issue) ->
         Logger.info("Issue no longer routed to this worker: #{issue_context(issue)} assignee=#{inspect(issue.assignee_id)}; stopping active agent")
 
@@ -601,7 +606,8 @@ defmodule SymphonyElixir.Orchestrator do
        when is_binary(id) and is_binary(identifier) and is_binary(title) and is_binary(state_name) do
     issue_routable_to_worker?(issue) and
       active_issue_state?(state_name, active_states) and
-      !terminal_issue_state?(state_name, terminal_states)
+      !terminal_issue_state?(state_name, terminal_states) and
+      dispatch_label_gate_passed?(issue)
   end
 
   defp candidate_issue?(_issue, _active_states, _terminal_states), do: false
@@ -611,6 +617,35 @@ defmodule SymphonyElixir.Orchestrator do
        do: assigned_to_worker
 
   defp issue_routable_to_worker?(_issue), do: true
+
+  defp dispatch_label_gate_passed?(%Issue{} = issue) do
+    dispatch = Config.settings!().dispatch
+
+    !issue_has_label?(issue, dispatch.paused_label) and
+      (!dispatch.require_ready_label or issue_has_label?(issue, dispatch.ready_label))
+  end
+
+  defp issue_paused_by_dispatch_label?(%Issue{} = issue) do
+    Config.settings!().dispatch.paused_label
+    |> then(&issue_has_label?(issue, &1))
+  end
+
+  defp issue_has_label?(%Issue{labels: labels}, wanted_label) when is_list(labels) and is_binary(wanted_label) do
+    normalized_wanted_label = normalize_issue_label(wanted_label)
+
+    normalized_wanted_label != "" and
+      Enum.any?(labels, &(normalize_issue_label(&1) == normalized_wanted_label))
+  end
+
+  defp issue_has_label?(_issue, _wanted_label), do: false
+
+  defp normalize_issue_label(label) when is_binary(label) do
+    label
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp normalize_issue_label(_label), do: ""
 
   defp todo_issue_blocked_by_non_terminal?(
          %Issue{state: issue_state, blocked_by: blockers},

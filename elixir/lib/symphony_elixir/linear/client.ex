@@ -4,7 +4,8 @@ defmodule SymphonyElixir.Linear.Client do
   """
 
   require Logger
-  alias SymphonyElixir.{Config, Linear.Issue}
+  alias SymphonyElixir.Config
+  alias SymphonyElixir.Tracker.Issue
 
   @issue_page_size 50
   @max_error_body_log_bytes 1_000
@@ -106,18 +107,18 @@ defmodule SymphonyElixir.Linear.Client do
   @spec fetch_candidate_issues() :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_candidate_issues do
     tracker = Config.settings!().tracker
-    project_slug = tracker.project_slug
+    project_slugs = project_slugs(tracker)
 
     cond do
       is_nil(tracker.api_key) ->
         {:error, :missing_linear_api_token}
 
-      is_nil(project_slug) ->
+      project_slugs == [] ->
         {:error, :missing_linear_project_slug}
 
       true ->
         with {:ok, assignee_filter} <- routing_assignee_filter() do
-          do_fetch_by_states(project_slug, tracker.active_states, assignee_filter)
+          do_fetch_by_project_slugs(project_slugs, tracker.active_states, assignee_filter)
         end
     end
   end
@@ -130,17 +131,17 @@ defmodule SymphonyElixir.Linear.Client do
       {:ok, []}
     else
       tracker = Config.settings!().tracker
-      project_slug = tracker.project_slug
+      project_slugs = project_slugs(tracker)
 
       cond do
         is_nil(tracker.api_key) ->
           {:error, :missing_linear_api_token}
 
-        is_nil(project_slug) ->
+        project_slugs == [] ->
           {:error, :missing_linear_project_slug}
 
         true ->
-          do_fetch_by_states(project_slug, normalized_states, nil)
+          do_fetch_by_project_slugs(project_slugs, normalized_states, nil)
       end
     end
   end
@@ -236,13 +237,74 @@ defmodule SymphonyElixir.Linear.Client do
     end
   end
 
-  defp do_fetch_by_states(project_slug, state_names, assignee_filter) do
-    do_fetch_by_states_page(project_slug, state_names, assignee_filter, nil, [])
+  @doc false
+  @spec fetch_by_project_slugs_for_test(
+          [String.t()],
+          [String.t()],
+          (String.t(), map() -> {:ok, map()} | {:error, term()})
+        ) ::
+          {:ok, [Issue.t()]} | {:error, term()}
+  def fetch_by_project_slugs_for_test(project_slugs, state_names, graphql_fun)
+      when is_list(project_slugs) and is_list(state_names) and is_function(graphql_fun, 2) do
+    do_fetch_by_project_slugs(project_slugs, state_names, nil, graphql_fun)
   end
 
-  defp do_fetch_by_states_page(project_slug, state_names, assignee_filter, after_cursor, acc_issues) do
+  defp project_slugs(tracker) do
+    case Map.get(tracker, :project_slugs, []) do
+      slugs when is_list(slugs) and slugs != [] ->
+        slugs
+        |> Enum.map(&normalize_project_slug/1)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq()
+
+      _ ->
+        tracker
+        |> Map.get(:project_slug)
+        |> normalize_project_slug()
+        |> case do
+          nil -> []
+          slug -> [slug]
+        end
+    end
+  end
+
+  defp normalize_project_slug(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      slug -> slug
+    end
+  end
+
+  defp normalize_project_slug(_value), do: nil
+
+  defp do_fetch_by_project_slugs(project_slugs, state_names, assignee_filter, graphql_fun \\ &graphql/2) do
+    project_slugs
+    |> Enum.reduce_while({:ok, []}, fn project_slug, {:ok, acc_issue_pages} ->
+      case do_fetch_by_states(project_slug, state_names, assignee_filter, graphql_fun) do
+        {:ok, issues} -> {:cont, {:ok, [issues | acc_issue_pages]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, issue_pages} ->
+        issue_pages
+        |> Enum.reverse()
+        |> List.flatten()
+        |> dedupe_issues()
+        |> then(&{:ok, &1})
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp do_fetch_by_states(project_slug, state_names, assignee_filter, graphql_fun) do
+    do_fetch_by_states_page(project_slug, state_names, assignee_filter, graphql_fun, nil, [])
+  end
+
+  defp do_fetch_by_states_page(project_slug, state_names, assignee_filter, graphql_fun, after_cursor, acc_issues) do
     with {:ok, body} <-
-           graphql(@query, %{
+           graphql_fun.(@query, %{
              projectSlug: project_slug,
              stateNames: state_names,
              first: @issue_page_size,
@@ -254,7 +316,7 @@ defmodule SymphonyElixir.Linear.Client do
 
       case next_page_cursor(page_info) do
         {:ok, next_cursor} ->
-          do_fetch_by_states_page(project_slug, state_names, assignee_filter, next_cursor, updated_acc)
+          do_fetch_by_states_page(project_slug, state_names, assignee_filter, graphql_fun, next_cursor, updated_acc)
 
         :done ->
           {:ok, finalize_paginated_issues(updated_acc)}
@@ -270,6 +332,32 @@ defmodule SymphonyElixir.Linear.Client do
   end
 
   defp finalize_paginated_issues(acc_issues) when is_list(acc_issues), do: Enum.reverse(acc_issues)
+
+  defp dedupe_issues(issues) when is_list(issues) do
+    {deduped, _seen} =
+      Enum.reduce(issues, {[], MapSet.new()}, &dedupe_issue/2)
+
+    Enum.reverse(deduped)
+  end
+
+  defp dedupe_issue(issue, {acc, seen}) do
+    case issue_identity(issue) do
+      nil -> {[issue | acc], seen}
+      identity -> append_unseen_issue(issue, identity, acc, seen)
+    end
+  end
+
+  defp append_unseen_issue(issue, identity, acc, seen) do
+    if MapSet.member?(seen, identity) do
+      {acc, seen}
+    else
+      {[issue | acc], MapSet.put(seen, identity)}
+    end
+  end
+
+  defp issue_identity(%Issue{id: id}) when is_binary(id) and id != "", do: {:id, id}
+  defp issue_identity(%Issue{identifier: identifier}) when is_binary(identifier) and identifier != "", do: {:identifier, identifier}
+  defp issue_identity(_issue), do: nil
 
   defp do_fetch_issue_states(ids, assignee_filter) do
     do_fetch_issue_states(ids, assignee_filter, &graphql/2)
