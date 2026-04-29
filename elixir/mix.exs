@@ -37,6 +37,7 @@ defmodule SymphonyElixir.MixProject do
           SymphonyElixir.Workspace,
           Mix.Tasks.Symphony.Check,
           Mix.Tasks.Symphony.Bootstrap,
+          Mix.Tasks.Entracte.Install,
           Mix.Tasks.Symphony.LinearTemplate.Install,
           Mix.Tasks.Symphony.Start,
           Mix.Tasks.Symphony.TrackerLabel.Install,

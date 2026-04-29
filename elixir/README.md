@@ -72,6 +72,36 @@ mix symphony.start
 See [`docs/team_workflow.md`](docs/team_workflow.md) for team runner models, credit ownership, and
 manager onboarding.
 
+### Optional global launcher
+
+Install a small `entracte` command into `~/.local/bin` when you want to start runners from profile
+files without remembering the full Mix invocation:
+
+```bash
+mise exec -- mix entracte.install
+```
+
+Then use a TOML profile from any directory:
+
+```bash
+entracte /path/to/runner.toml
+entracte check /path/to/runner.toml
+```
+
+Minimal profile:
+
+```toml
+[runner]
+workflow = "WORKFLOW.md"
+env_file = ".env"
+logs_root = "log"
+port = 4000
+```
+
+The profile path is resolved from the directory where `entracte` is invoked. Paths inside the
+profile are resolved relative to the profile file, so a profile can live next to its own workflow and
+env file.
+
 ## Configuration
 
 Pass a custom workflow file path to `./bin/symphony` when starting the service:
