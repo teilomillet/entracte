@@ -1062,6 +1062,26 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert {:error, :missing_headless_command} = Config.validate!()
   end
 
+  test "config defaults missing agent runner values to app server" do
+    File.write!(Workflow.workflow_file_path(), """
+    ---
+    tracker:
+      kind: "memory"
+    agent:
+      max_concurrent_agents: 2
+    codex:
+      command: "codex app-server"
+    ---
+    Prompt
+    """)
+
+    if Process.whereis(WorkflowStore), do: WorkflowStore.force_reload()
+
+    assert Config.settings!().agent.runner == "app_server"
+    assert Config.agent_runner() == :app_server
+    assert :ok = Config.validate!()
+  end
+
   test "config resolves $VAR references for env-backed secret and path values" do
     workspace_env_var = "SYMP_WORKSPACE_ROOT_#{System.unique_integer([:positive])}"
     api_key_env_var = "SYMP_LINEAR_API_KEY_#{System.unique_integer([:positive])}"

@@ -266,6 +266,19 @@ defmodule SymphonyElixir.AgentRuntimeTest do
     assert :ok = AgentRuntime.stop_session(%{agent_runtime: :headless})
   end
 
+  test "agent runtime rejects unknown session runtimes instead of falling back to app server" do
+    issue = headless_issue("MT-UNKNOWN-RUNTIME")
+
+    assert {:error, :invalid_app_server_session} =
+             AgentRuntime.run_turn(%{agent_runtime: :app_server}, "prompt", issue)
+
+    assert {:error, {:unsupported_agent_runtime, :future_runner}} =
+             AgentRuntime.run_turn(%{agent_runtime: :future_runner}, "prompt", issue)
+
+    assert {:error, :missing_agent_runtime} =
+             AgentRuntime.run_turn(%{}, "prompt", issue)
+  end
+
   test "headless runner direct defaults report missing bash and prompt write failures" do
     test_root =
       Path.join(

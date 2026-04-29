@@ -20,6 +20,8 @@ defmodule SymphonyElixir.Config do
   {% endif %}
   """
 
+  @default_agent_runner "app_server"
+
   @type codex_runtime_settings :: %{
           approval_policy: String.t() | map(),
           thread_sandbox: String.t(),
@@ -108,8 +110,7 @@ defmodule SymphonyElixir.Config do
   @spec agent_runner() :: agent_runner()
   def agent_runner do
     settings!()
-    |> Map.fetch!(:agent)
-    |> Map.fetch!(:runner)
+    |> configured_agent_runner()
     |> normalize_agent_runner()
   end
 
@@ -162,15 +163,27 @@ defmodule SymphonyElixir.Config do
   end
 
   defp validate_agent_runtime_semantics(settings) do
-    case normalize_agent_runner(settings.agent.runner) do
+    runner = configured_agent_runner(settings)
+
+    case normalize_agent_runner(runner) do
       :unsupported ->
-        {:error, {:unsupported_agent_runner, settings.agent.runner}}
+        {:error, {:unsupported_agent_runner, runner}}
 
       :app_server ->
         validate_app_server_runtime_settings(settings)
 
       :headless ->
         validate_headless_runtime_settings(settings)
+    end
+  end
+
+  defp configured_agent_runner(settings) do
+    agent = Map.get(settings, :agent) || Map.get(settings, "agent")
+
+    case agent do
+      %{runner: runner} when not is_nil(runner) -> runner
+      %{"runner" => runner} when not is_nil(runner) -> runner
+      _agent -> @default_agent_runner
     end
   end
 
