@@ -106,6 +106,49 @@ defmodule SymphonyElixirWeb.DashboardLive do
           </article>
         </section>
 
+        <section class="section-card activity-section">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">What's happening</h2>
+              <p class="section-copy">Latest Codex activity across active issues.</p>
+            </div>
+          </div>
+
+          <%= if @payload.activity == [] do %>
+            <p class="empty-state">No Codex activity has been recorded yet.</p>
+          <% else %>
+            <ol class="activity-list">
+              <li :for={entry <- @payload.activity} class="activity-item">
+                <div class="activity-main">
+                  <div class="activity-heading">
+                    <span class="issue-id"><%= entry.issue_identifier %></span>
+                    <span class={state_badge_class(entry.state)}>
+                      <%= entry.state %>
+                    </span>
+                  </div>
+                  <p class="activity-message">
+                    <%= entry.message || to_string(entry.event || "n/a") %>
+                  </p>
+                </div>
+                <div class="activity-meta">
+                  <span class="mono numeric"><%= entry.at || "n/a" %></span>
+                  <%= if entry.session_id do %>
+                    <button
+                      type="button"
+                      class="subtle-button"
+                      data-label="Copy ID"
+                      data-copy={entry.session_id}
+                      onclick="navigator.clipboard.writeText(this.dataset.copy); this.textContent = 'Copied'; clearTimeout(this._copyTimer); this._copyTimer = setTimeout(() => { this.textContent = this.dataset.label }, 1200);"
+                    >
+                      Copy ID
+                    </button>
+                  <% end %>
+                </div>
+              </li>
+            </ol>
+          <% end %>
+        </section>
+
         <section class="section-card">
           <div class="section-header">
             <div>

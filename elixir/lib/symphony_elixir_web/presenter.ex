@@ -17,6 +17,7 @@ defmodule SymphonyElixirWeb.Presenter do
             running: length(snapshot.running),
             retrying: length(snapshot.retrying)
           },
+          activity: activity_payload(snapshot.running),
           running: Enum.map(snapshot.running, &running_entry_payload/1),
           retrying: Enum.map(snapshot.retrying, &retry_entry_payload/1),
           codex_totals: snapshot.codex_totals,
@@ -108,6 +109,7 @@ defmodule SymphonyElixirWeb.Presenter do
       last_message: summarize_message(entry.last_codex_message),
       started_at: iso8601(entry.started_at),
       last_event_at: iso8601(entry.last_codex_timestamp),
+      recent_events: recent_events_payload(entry),
       tokens: %{
         input_tokens: entry.codex_input_tokens,
         output_tokens: entry.codex_output_tokens,
@@ -139,6 +141,7 @@ defmodule SymphonyElixirWeb.Presenter do
       last_event: running.last_codex_event,
       last_message: summarize_message(running.last_codex_message),
       last_event_at: iso8601(running.last_codex_timestamp),
+      recent_events: recent_events_payload(running),
       tokens: %{
         input_tokens: running.codex_input_tokens,
         output_tokens: running.codex_output_tokens,
@@ -167,16 +170,61 @@ defmodule SymphonyElixirWeb.Presenter do
     (running && Map.get(running, :worker_host)) || (retry && Map.get(retry, :worker_host))
   end
 
-  defp recent_events_payload(running) do
-    [
-      %{
-        at: iso8601(running.last_codex_timestamp),
-        event: running.last_codex_event,
-        message: summarize_message(running.last_codex_message)
-      }
-    ]
-    |> Enum.reject(&is_nil(&1.at))
+  defp activity_payload(running_entries) when is_list(running_entries) do
+    running_entries
+    |> Enum.flat_map(&activity_entries_for_running_entry/1)
+    |> Enum.sort_by(&activity_sort_key/1, :desc)
+    |> Enum.take(10)
   end
+
+  defp activity_payload(_running_entries), do: []
+
+  defp activity_entries_for_running_entry(running) when is_map(running) do
+    running
+    |> recent_events_payload()
+    |> Enum.map(fn event ->
+      Map.merge(event, %{
+        issue_id: running.issue_id,
+        issue_identifier: running.identifier,
+        state: running.state,
+        session_id: running.session_id
+      })
+    end)
+  end
+
+  defp activity_entries_for_running_entry(_running), do: []
+
+  defp activity_sort_key(%{at: at}) when is_binary(at), do: at
+  defp activity_sort_key(_activity), do: ""
+
+  defp recent_events_payload(running) do
+    case Map.get(running, :codex_recent_events, []) do
+      events when is_list(events) and events != [] ->
+        events
+        |> Enum.map(&recent_event_payload/1)
+        |> Enum.reject(&is_nil(&1.at))
+
+      _ ->
+        [
+          %{
+            at: iso8601(running.last_codex_timestamp),
+            event: running.last_codex_event,
+            message: summarize_message(running.last_codex_message)
+          }
+        ]
+        |> Enum.reject(&is_nil(&1.at))
+    end
+  end
+
+  defp recent_event_payload(event) when is_map(event) do
+    %{
+      at: iso8601(Map.get(event, :timestamp) || Map.get(event, "timestamp")),
+      event: Map.get(event, :event) || Map.get(event, "event"),
+      message: summarize_message(Map.get(event, :message) || Map.get(event, "message"))
+    }
+  end
+
+  defp recent_event_payload(_event), do: %{at: nil, event: nil, message: nil}
 
   defp summarize_message(nil), do: nil
   defp summarize_message(message), do: StatusDashboard.humanize_codex_message(message)

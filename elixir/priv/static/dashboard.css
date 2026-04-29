@@ -298,6 +298,62 @@ pre,
   margin-top: 1rem;
 }
 
+.activity-section {
+  padding-bottom: 0.8rem;
+}
+
+.activity-list {
+  display: grid;
+  gap: 0;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.activity-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  padding: 0.85rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.activity-item:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.activity-main {
+  display: grid;
+  gap: 0.38rem;
+  min-width: 0;
+}
+
+.activity-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.activity-message {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.95rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.activity-meta {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 0.55rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  min-width: 15rem;
+}
+
 .data-table {
   width: 100%;
   min-width: 720px;
@@ -442,6 +498,16 @@ pre,
 
   .status-stack {
     justify-items: start;
+  }
+
+  .activity-item {
+    grid-template-columns: 1fr;
+  }
+
+  .activity-meta {
+    justify-content: flex-start;
+    min-width: 0;
+    flex-wrap: wrap;
   }
 
   .metric-grid {

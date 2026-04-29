@@ -12,6 +12,7 @@ defmodule SymphonyElixir.Orchestrator do
 
   @continuation_retry_delay_ms 1_000
   @failure_retry_base_ms 10_000
+  @recent_codex_activity_limit 10
   # Slightly above the dashboard render interval so "checking now…" can render.
   @poll_transition_render_delay_ms 20
   @empty_codex_totals %{
@@ -746,6 +747,7 @@ defmodule SymphonyElixir.Orchestrator do
             last_codex_message: nil,
             last_codex_timestamp: nil,
             last_codex_event: nil,
+            codex_recent_events: [],
             codex_app_server_pid: nil,
             codex_input_tokens: 0,
             codex_output_tokens: 0,
@@ -1157,6 +1159,7 @@ defmodule SymphonyElixir.Orchestrator do
           last_codex_timestamp: metadata.last_codex_timestamp,
           last_codex_message: metadata.last_codex_message,
           last_codex_event: metadata.last_codex_event,
+          codex_recent_events: Map.get(metadata, :codex_recent_events, []),
           runtime_seconds: running_seconds(metadata.started_at, now)
         }
       end)
@@ -1214,13 +1217,15 @@ defmodule SymphonyElixir.Orchestrator do
     last_reported_output = Map.get(running_entry, :codex_last_reported_output_tokens, 0)
     last_reported_total = Map.get(running_entry, :codex_last_reported_total_tokens, 0)
     turn_count = Map.get(running_entry, :turn_count, 0)
+    summary = summarize_codex_update(update)
 
     {
       Map.merge(running_entry, %{
         last_codex_timestamp: timestamp,
-        last_codex_message: summarize_codex_update(update),
+        last_codex_message: summary,
         session_id: session_id_for_update(running_entry.session_id, update),
         last_codex_event: event,
+        codex_recent_events: update_recent_codex_events(running_entry, summary),
         codex_app_server_pid: codex_app_server_pid_for_update(codex_app_server_pid, update),
         codex_input_tokens: codex_input_tokens + token_delta.input_tokens,
         codex_output_tokens: codex_output_tokens + token_delta.output_tokens,
@@ -1277,6 +1282,23 @@ defmodule SymphonyElixir.Orchestrator do
       timestamp: update[:timestamp]
     }
   end
+
+  defp update_recent_codex_events(running_entry, %{timestamp: %DateTime{}} = summary) do
+    running_entry
+    |> Map.get(:codex_recent_events, [])
+    |> normalize_recent_codex_events()
+    |> then(&[summary | &1])
+    |> Enum.take(@recent_codex_activity_limit)
+  end
+
+  defp update_recent_codex_events(running_entry, _summary) do
+    running_entry
+    |> Map.get(:codex_recent_events, [])
+    |> normalize_recent_codex_events()
+  end
+
+  defp normalize_recent_codex_events(events) when is_list(events), do: events
+  defp normalize_recent_codex_events(_events), do: []
 
   defp schedule_tick(%State{} = state, delay_ms) when is_integer(delay_ms) and delay_ms >= 0 do
     if is_reference(state.tick_timer_ref) do

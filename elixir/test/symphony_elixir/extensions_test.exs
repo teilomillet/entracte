@@ -671,6 +671,17 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert state_payload == %{
              "generated_at" => state_payload["generated_at"],
              "counts" => %{"running" => 1, "retrying" => 1},
+             "activity" => [
+               %{
+                 "issue_id" => "issue-http",
+                 "issue_identifier" => "MT-HTTP",
+                 "state" => "In Progress",
+                 "session_id" => "thread-http",
+                 "event" => "notification",
+                 "message" => "observed activity",
+                 "at" => state_payload["activity"] |> List.first() |> Map.fetch!("at")
+               }
+             ],
              "running" => [
                %{
                  "issue_id" => "issue-http",
@@ -684,6 +695,13 @@ defmodule SymphonyElixir.ExtensionsTest do
                  "last_message" => "rendered",
                  "started_at" => state_payload["running"] |> List.first() |> Map.fetch!("started_at"),
                  "last_event_at" => nil,
+                 "recent_events" => [
+                   %{
+                     "event" => "notification",
+                     "message" => "observed activity",
+                     "at" => state_payload["running"] |> List.first() |> Map.fetch!("recent_events") |> List.first() |> Map.fetch!("at")
+                   }
+                 ],
                  "tokens" => %{"input_tokens" => 4, "output_tokens" => 8, "total_tokens" => 12}
                }
              ],
@@ -729,11 +747,24 @@ defmodule SymphonyElixir.ExtensionsTest do
                "last_event" => "notification",
                "last_message" => "rendered",
                "last_event_at" => nil,
+               "recent_events" => [
+                 %{
+                   "event" => "notification",
+                   "message" => "observed activity",
+                   "at" => issue_payload["running"]["recent_events"] |> List.first() |> Map.fetch!("at")
+                 }
+               ],
                "tokens" => %{"input_tokens" => 4, "output_tokens" => 8, "total_tokens" => 12}
              },
              "retry" => nil,
              "logs" => %{"codex_session_logs" => []},
-             "recent_events" => [],
+             "recent_events" => [
+               %{
+                 "event" => "notification",
+                 "message" => "observed activity",
+                 "at" => issue_payload["recent_events"] |> List.first() |> Map.fetch!("at")
+               }
+             ],
              "last_error" => nil,
              "tracked" => %{}
            }
@@ -876,6 +907,7 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert html =~ "Offline"
     assert html =~ "Copy ID"
     assert html =~ "Codex update"
+    assert html =~ "Latest Codex activity across active issues."
     refute html =~ "data-runtime-clock="
     refute html =~ "setInterval(refreshRuntimeClocks"
     refute html =~ "Refresh now"
@@ -1012,6 +1044,8 @@ defmodule SymphonyElixir.ExtensionsTest do
   end
 
   defp static_snapshot do
+    activity_at = DateTime.utc_now()
+
     %{
       running: [
         %{
@@ -1024,6 +1058,9 @@ defmodule SymphonyElixir.ExtensionsTest do
           last_codex_message: "rendered",
           last_codex_timestamp: nil,
           last_codex_event: :notification,
+          codex_recent_events: [
+            %{event: :notification, message: "observed activity", timestamp: activity_at}
+          ],
           codex_input_tokens: 4,
           codex_output_tokens: 8,
           codex_total_tokens: 12,

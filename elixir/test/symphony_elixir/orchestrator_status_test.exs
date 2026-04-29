@@ -77,28 +77,34 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
        }}
     )
 
-    send(
-      pid,
-      {:codex_worker_update, issue_id,
-       %{
-         event: :notification,
-         payload: %{method: "some-event"},
-         timestamp: now
-       }}
-    )
+    Enum.each(1..12, fn index ->
+      send(
+        pid,
+        {:codex_worker_update, issue_id,
+         %{
+           event: :notification,
+           payload: %{method: "event-#{index}"},
+           timestamp: DateTime.add(now, index, :second)
+         }}
+      )
+    end)
 
     snapshot = GenServer.call(pid, :snapshot)
     assert %{running: [snapshot_entry]} = snapshot
     assert snapshot_entry.issue_id == issue_id
     assert snapshot_entry.session_id == "thread-live-turn-live"
     assert snapshot_entry.turn_count == 1
-    assert snapshot_entry.last_codex_timestamp == now
+    assert snapshot_entry.last_codex_timestamp == DateTime.add(now, 12, :second)
 
     assert snapshot_entry.last_codex_message == %{
              event: :notification,
-             message: %{method: "some-event"},
-             timestamp: now
+             message: %{method: "event-12"},
+             timestamp: DateTime.add(now, 12, :second)
            }
+
+    assert length(snapshot_entry.codex_recent_events) == 10
+    assert hd(snapshot_entry.codex_recent_events).message == %{method: "event-12"}
+    assert List.last(snapshot_entry.codex_recent_events).message == %{method: "event-3"}
   end
 
   test "orchestrator snapshot tracks codex thread totals and app-server pid" do
