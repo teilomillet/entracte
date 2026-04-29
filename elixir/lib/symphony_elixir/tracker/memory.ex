@@ -56,6 +56,9 @@ defmodule SymphonyElixir.Tracker.Memory do
   @spec install_labels(keyword()) :: {:ok, []} | {:error, term()}
   def install_labels(_opts), do: {:ok, []}
 
+  @spec install_workflow_states(keyword()) :: {:ok, []} | {:error, term()}
+  def install_workflow_states(_opts), do: {:ok, []}
+
   @spec install_issue_templates(keyword()) :: {:ok, []} | {:error, term()}
   def install_issue_templates(_opts), do: {:ok, []}
 

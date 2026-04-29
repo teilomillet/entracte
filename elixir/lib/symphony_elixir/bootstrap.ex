@@ -10,10 +10,17 @@ defmodule SymphonyElixir.Bootstrap do
     TrackerLabelInstaller,
     TrackerTemplateInstaller,
     TrackerViewInstaller,
+    TrackerWorkflowStateInstaller,
     Workflow
   }
 
-  alias SymphonyElixir.Tracker.{LabelInstallation, Project, TemplateInstallation, ViewInstallation}
+  alias SymphonyElixir.Tracker.{
+    LabelInstallation,
+    Project,
+    TemplateInstallation,
+    ViewInstallation,
+    WorkflowStateInstallation
+  }
 
   @profile_pattern ~r/^[A-Za-z0-9_.-]+$/
   @key_pattern ~r/^[A-Za-z_][A-Za-z0-9_]*$/
@@ -23,6 +30,7 @@ defmodule SymphonyElixir.Bootstrap do
           required(:project_slugs) => [String.t()],
           required(:projects) => [Project.t()],
           required(:label_results) => [LabelInstallation.t()],
+          required(:workflow_state_results) => [WorkflowStateInstallation.t()],
           required(:template_results) => [TemplateInstallation.t()],
           required(:view_results) => [ViewInstallation.t()],
           required(:smoke_check) => SmokeCheck.check_result() | :skipped
@@ -46,6 +54,8 @@ defmodule SymphonyElixir.Bootstrap do
           required(:get_env) => (String.t() -> String.t() | nil),
           required(:git_remote_url) => (-> {:ok, String.t()} | {:error, term()}),
           required(:install_labels) => (keyword() -> {:ok, [LabelInstallation.t()]} | {:error, term()}),
+          required(:install_workflow_states) => (keyword() ->
+                                                   {:ok, [WorkflowStateInstallation.t()]} | {:error, term()}),
           required(:install_templates) => (keyword() -> {:ok, [TemplateInstallation.t()]} | {:error, term()}),
           required(:install_views) => (keyword() -> {:ok, [ViewInstallation.t()]} | {:error, term()}),
           required(:smoke_check) => (keyword() -> SmokeCheck.check_result())
@@ -65,6 +75,7 @@ defmodule SymphonyElixir.Bootstrap do
          :ok <- write_runner_env(env_path, selected_projects, opts, deps),
          :ok <- deps.load_env_file.(env_path),
          {:ok, label_results} <- maybe_install_labels(opts, env_path, workflow_path, deps),
+         {:ok, workflow_state_results} <- maybe_install_workflow_states(opts, env_path, workflow_path, deps),
          {:ok, template_results} <- maybe_install_templates(opts, env_path, workflow_path, deps),
          {:ok, view_results} <- maybe_install_views(opts, env_path, workflow_path, deps),
          smoke_result <- maybe_smoke_check(opts, env_path, workflow_path, deps) do
@@ -74,6 +85,7 @@ defmodule SymphonyElixir.Bootstrap do
          project_slugs: Enum.map(selected_projects, & &1.slug),
          projects: selected_projects,
          label_results: label_results,
+         workflow_state_results: workflow_state_results,
          template_results: template_results,
          view_results: view_results,
          smoke_check: smoke_result
@@ -98,6 +110,7 @@ defmodule SymphonyElixir.Bootstrap do
       get_env: &System.get_env/1,
       git_remote_url: &git_remote_url/0,
       install_labels: &TrackerLabelInstaller.install/1,
+      install_workflow_states: &TrackerWorkflowStateInstaller.install/1,
       install_templates: &TrackerTemplateInstaller.install/1,
       install_views: &TrackerViewInstaller.install/1,
       smoke_check: &SmokeCheck.run/1
@@ -329,6 +342,14 @@ defmodule SymphonyElixir.Bootstrap do
       {:ok, []}
     else
       deps.install_templates.(workflow: workflow_path, env_file: env_path)
+    end
+  end
+
+  defp maybe_install_workflow_states(opts, env_path, workflow_path, deps) do
+    if Keyword.get(opts, :skip_state_install, false) do
+      {:ok, []}
+    else
+      deps.install_workflow_states.(workflow: workflow_path, env_file: env_path)
     end
   end
 

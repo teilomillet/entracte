@@ -190,9 +190,10 @@ Notes:
   `WORKFLOW.md` config is resolved and override already-set process environment values for that run.
 - Run `mix symphony.bootstrap` after adding `LINEAR_API_KEY` to `.env` or exporting it. It discovers
   projects visible to the configured tracker, writes the project slug when unambiguous, installs the
-  dispatch labels, installs the default tracker issue template, creates saved tracker views for
-  `All`, `Ready`, `Paused`, plus each non-canceled Linear workflow state, favorites those views under
-  a `Symphony` sidebar folder, and runs the smoke check.
+  dispatch labels, creates missing states listed in `tracker.bootstrap_states` such as
+  `Human Review`, `Merging`, and `Rework`, installs the default tracker issue template, creates
+  saved tracker views for `All`, `Ready`, `Paused`, plus each non-canceled Linear workflow state,
+  favorites those views under a `Symphony` sidebar folder, and runs the smoke check.
   If several projects are visible, rerun it with `--project <slug>` or `--all-projects`.
 - Run `mix symphony.check` after editing `.env` to verify the env file, workflow config, Linear
   read access, source repository reachability, and Codex binary before starting the daemon. The check
@@ -203,6 +204,8 @@ Notes:
 - Run `mix symphony.tracker_label.install` to create or update the dispatch labels without rerunning
   full bootstrap. The Linear adapter creates team-scoped `agent-ready` and `agent-paused` labels by
   default.
+- Run `mix symphony.tracker_state.install` to create missing configured workflow states without
+  rerunning full bootstrap. Existing team states are left unchanged.
 - Run `mix symphony.tracker_view.install` to create or update the saved tracker views and sidebar
   favorites without rerunning full bootstrap. Use `--skip-favorites` to create the views without
   changing the authenticated Linear user's sidebar.

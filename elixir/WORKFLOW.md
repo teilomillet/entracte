@@ -9,6 +9,14 @@ tracker:
     - In Progress
     - Merging
     - Rework
+  bootstrap_states:
+    - Backlog
+    - Todo
+    - In Progress
+    - Human Review
+    - Merging
+    - Rework
+    - Done
   terminal_states:
     - Closed
     - Cancelled

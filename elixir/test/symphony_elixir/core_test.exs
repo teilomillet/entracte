@@ -22,6 +22,7 @@ defmodule SymphonyElixir.CoreTest do
       poll_interval_ms: nil,
       tracker_active_states: nil,
       tracker_terminal_states: nil,
+      tracker_bootstrap_states: nil,
       codex_command: nil
     )
 
@@ -29,6 +30,7 @@ defmodule SymphonyElixir.CoreTest do
     assert config.polling.interval_ms == 30_000
     assert config.tracker.active_states == ["Todo", "In Progress"]
     assert config.tracker.terminal_states == ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
+    assert config.tracker.bootstrap_states == ["Backlog", "Todo", "In Progress", "Human Review", "Merging", "Rework", "Done"]
     assert config.tracker.assignee == nil
     assert config.dispatch.require_ready_label == true
     assert config.dispatch.ready_label == "agent-ready"

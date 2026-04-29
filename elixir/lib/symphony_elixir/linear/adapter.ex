@@ -9,6 +9,7 @@ defmodule SymphonyElixir.Linear.Adapter do
   alias SymphonyElixir.LinearLabelInstaller
   alias SymphonyElixir.LinearTemplateInstaller
   alias SymphonyElixir.LinearViewInstaller
+  alias SymphonyElixir.LinearWorkflowStateInstaller
   alias SymphonyElixir.Tracker
   alias SymphonyElixir.Tracker.Project
 
@@ -134,6 +135,11 @@ defmodule SymphonyElixir.Linear.Adapter do
   @spec install_labels(keyword()) :: {:ok, [Tracker.LabelInstallation.t()]} | {:error, term()}
   def install_labels(opts) when is_list(opts) do
     LinearLabelInstaller.install_for_current_workflow(opts)
+  end
+
+  @spec install_workflow_states(keyword()) :: {:ok, [Tracker.WorkflowStateInstallation.t()]} | {:error, term()}
+  def install_workflow_states(opts) when is_list(opts) do
+    LinearWorkflowStateInstaller.install_for_current_workflow(opts)
   end
 
   @spec install_views(keyword()) :: {:ok, [Tracker.ViewInstallation.t()]} | {:error, term()}

@@ -4,7 +4,7 @@ defmodule SymphonyElixir.BootstrapTest do
   alias SymphonyElixir.{Bootstrap, EnvFile}
   alias SymphonyElixir.Tracker.Project
 
-  test "selects the only visible project, writes env, installs labels templates and views, and runs checks" do
+  test "selects the only visible project, writes env, installs labels states templates and views, and runs checks" do
     parent = self()
     previous_api_key = System.get_env("LINEAR_API_KEY")
     previous_source_repo_url = System.get_env("SOURCE_REPO_URL")
@@ -52,6 +52,7 @@ defmodule SymphonyElixir.BootstrapTest do
     assert File.read!(env_path) =~ "SYMPHONY_WORKSPACE_ROOT=~/code/symphony-workspaces"
 
     assert_received {:install_labels, [workflow: ^workflow_path, env_file: ^env_path]}
+    assert_received {:install_workflow_states, [workflow: ^workflow_path, env_file: ^env_path]}
     assert_received {:install_templates, [workflow: ^workflow_path, env_file: ^env_path]}
     assert_received {:install_views, [workflow: ^workflow_path, env_file: ^env_path]}
     assert_received {:smoke_check, [workflow: ^workflow_path, env_file: ^env_path]}
@@ -96,6 +97,10 @@ defmodule SymphonyElixir.BootstrapTest do
       git_remote_url: git_remote_url,
       install_labels: fn opts ->
         send(parent, {:install_labels, opts})
+        {:ok, []}
+      end,
+      install_workflow_states: fn opts ->
+        send(parent, {:install_workflow_states, opts})
         {:ok, []}
       end,
       install_templates: fn opts ->

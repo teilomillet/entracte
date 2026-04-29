@@ -100,6 +100,7 @@ defmodule SymphonyElixir.TestSupport do
           tracker_assignee: nil,
           tracker_active_states: ["Todo", "In Progress"],
           tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"],
+          tracker_bootstrap_states: ["Backlog", "Todo", "In Progress", "Human Review", "Merging", "Rework", "Done"],
           dispatch_require_ready_label: true,
           dispatch_ready_label: "agent-ready",
           dispatch_paused_label: "agent-paused",
@@ -141,6 +142,7 @@ defmodule SymphonyElixir.TestSupport do
     tracker_assignee = Keyword.get(config, :tracker_assignee)
     tracker_active_states = Keyword.get(config, :tracker_active_states)
     tracker_terminal_states = Keyword.get(config, :tracker_terminal_states)
+    tracker_bootstrap_states = Keyword.get(config, :tracker_bootstrap_states)
     dispatch_require_ready_label = Keyword.get(config, :dispatch_require_ready_label)
     dispatch_ready_label = Keyword.get(config, :dispatch_ready_label)
     dispatch_paused_label = Keyword.get(config, :dispatch_paused_label)
@@ -183,6 +185,7 @@ defmodule SymphonyElixir.TestSupport do
         "  assignee: #{yaml_value(tracker_assignee)}",
         "  active_states: #{yaml_value(tracker_active_states)}",
         "  terminal_states: #{yaml_value(tracker_terminal_states)}",
+        "  bootstrap_states: #{yaml_value(tracker_bootstrap_states)}",
         "dispatch:",
         "  require_ready_label: #{yaml_value(dispatch_require_ready_label)}",
         "  ready_label: #{yaml_value(dispatch_ready_label)}",

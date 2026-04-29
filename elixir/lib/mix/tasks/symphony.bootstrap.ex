@@ -2,12 +2,14 @@ defmodule Mix.Tasks.Symphony.Bootstrap do
   use Mix.Task
 
   alias Mix.Tasks.Symphony.TrackerLabel.Install, as: TrackerLabelInstall
+  alias Mix.Tasks.Symphony.TrackerState.Install, as: TrackerStateInstall
   alias Mix.Tasks.Symphony.TrackerTemplate.Install, as: TrackerTemplateInstall
   alias Mix.Tasks.Symphony.TrackerView.Install, as: TrackerViewInstall
   alias SymphonyElixir.Bootstrap
   alias SymphonyElixir.Tracker.LabelInstallation
   alias SymphonyElixir.Tracker.TemplateInstallation
   alias SymphonyElixir.Tracker.ViewInstallation
+  alias SymphonyElixir.Tracker.WorkflowStateInstallation
 
   @moduledoc """
   Bootstraps local Symphony config from tracker API access.
@@ -18,8 +20,8 @@ defmodule Mix.Tasks.Symphony.Bootstrap do
       mix symphony.bootstrap --profile client-a --project client-a-def456
 
   The task loads or creates `.env`, discovers projects visible to the configured tracker, writes
-  the chosen project slug, installs dispatch labels, the default tracker issue template and saved
-  views, and runs the smoke check.
+  the chosen project slug, installs dispatch labels, required workflow states, the default tracker
+  issue template and saved views, and runs the smoke check.
   """
 
   @shortdoc "Discovers tracker projects and writes local runner env config"
@@ -35,6 +37,7 @@ defmodule Mix.Tasks.Symphony.Bootstrap do
     codex_bin: :string,
     port: :integer,
     skip_label_install: :boolean,
+    skip_state_install: :boolean,
     skip_template_install: :boolean,
     skip_view_install: :boolean,
     skip_check: :boolean
@@ -66,6 +69,10 @@ defmodule Mix.Tasks.Symphony.Bootstrap do
       Mix.shell().info(format_label_result(label_result))
     end)
 
+    Enum.each(result.workflow_state_results, fn state_result ->
+      Mix.shell().info(format_state_result(state_result))
+    end)
+
     Enum.each(result.template_results, fn template_result ->
       Mix.shell().info(format_template_result(template_result))
     end)
@@ -80,6 +87,10 @@ defmodule Mix.Tasks.Symphony.Bootstrap do
 
   defp format_label_result(%LabelInstallation{} = result) do
     TrackerLabelInstall.format_result(result)
+  end
+
+  defp format_state_result(%WorkflowStateInstallation{} = result) do
+    TrackerStateInstall.format_result(result)
   end
 
   defp format_template_result(%TemplateInstallation{} = result) do

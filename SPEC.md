@@ -456,6 +456,9 @@ Fields:
   - When both forms are absent after environment resolution, dispatch MUST fail.
 - `active_states` (list of strings)
   - Default: `Todo`, `In Progress`
+- `bootstrap_states` (list of strings)
+  - States bootstrap SHOULD ensure exist for the selected tracker project teams.
+  - Default: `Backlog`, `Todo`, `In Progress`, `Human Review`, `Merging`, `Rework`, `Done`
 - `terminal_states` (list of strings)
   - Default: `Closed`, `Cancelled`, `Canceled`, `Duplicate`, `Done`
 
@@ -694,6 +697,7 @@ not require recognizing or validating extension fields unless that extension is 
 - `tracker.project_slug`: string shorthand for one Linear project when `tracker.kind=linear`
 - `tracker.project_slugs`: list of strings for one or more Linear projects when `tracker.kind=linear`
 - `tracker.active_states`: list of strings, default `["Todo", "In Progress"]`
+- `tracker.bootstrap_states`: list of strings, default `["Backlog", "Todo", "In Progress", "Human Review", "Merging", "Rework", "Done"]`
 - `tracker.terminal_states`: list of strings, default `["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]`
 - `dispatch.require_ready_label`: boolean, default `true`
 - `dispatch.ready_label`: string, default `"agent-ready"`
@@ -1290,7 +1294,11 @@ An implementation MUST support these tracker adapter operations:
    - Creates, updates, or confirms configured tracker dispatch labels and returns normalized label
      installation results.
 
-8. `install_views(opts)`
+8. `install_workflow_states(opts)`
+   - Creates or confirms configured tracker workflow states and returns normalized workflow state
+     installation results.
+
+9. `install_views(opts)`
    - Creates, updates, or confirms configured tracker saved views and returns normalized view
      installation results.
 
@@ -1306,6 +1314,9 @@ Linear-specific requirements for `tracker.kind == "linear"`:
 - Issue-state refresh query uses GraphQL issue IDs with variable type `[ID!]`
 - Label setup SHOULD create team-scoped Linear issue labels matching `dispatch.ready_label` and
   `dispatch.paused_label` for each configured project team.
+- Workflow state setup SHOULD create missing team-scoped Linear workflow states listed in
+  `tracker.bootstrap_states` before saved view setup. Existing workflow states SHOULD be left
+  unchanged by default.
 - Saved view setup SHOULD create shared Linear custom views for each configured project, including an
   all-issues view, ready/paused label views, and one view per non-canceled team workflow state. When
   Linear favorites are available, setup SHOULD add those views under a stable `Symphony` sidebar

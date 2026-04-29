@@ -198,6 +198,7 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert {:ok, []} = SymphonyElixir.Tracker.list_projects()
     assert {:ok, %{}} = SymphonyElixir.Tracker.bootstrap_env_entries([%Project{slug: "ignored"}])
     assert {:ok, []} = SymphonyElixir.Tracker.install_labels()
+    assert {:ok, []} = SymphonyElixir.Tracker.install_workflow_states()
     assert {:ok, []} = SymphonyElixir.Tracker.install_issue_templates()
     assert {:ok, []} = SymphonyElixir.Tracker.install_views()
     assert_receive {:memory_tracker_comment, "issue-1", "comment"}
@@ -514,6 +515,81 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert Enum.map(results, & &1.action) == [:created, :created]
     assert Enum.map(results, & &1.label.name) == ["agent-ready", "agent-paused"]
     assert Enum.map(results, & &1.context.kind) == [:ready, :paused]
+    assert Enum.map(results, &(&1.projects |> List.first() |> Map.fetch!(:slug))) == ["project-slug", "project-slug"]
+  end
+
+  test "linear adapter installs workflow states through provider implementation" do
+    Application.put_env(:symphony_elixir, :linear_client_module, FakeLinearClient)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "linear",
+      tracker_project_slug: "project-slug",
+      tracker_project_slugs: ["project-slug"],
+      tracker_bootstrap_states: ["Backlog", "Todo"]
+    )
+
+    Process.put(
+      {FakeLinearClient, :graphql_results},
+      [
+        {:ok,
+         %{
+           "data" => %{
+             "projects" => %{
+               "nodes" => [
+                 %{
+                   "id" => "project-1",
+                   "name" => "Project",
+                   "slugId" => "project-slug",
+                   "url" => "https://linear.app/acme/project/project-slug",
+                   "teams" => %{
+                     "nodes" => [
+                       %{
+                         "id" => "team-1",
+                         "key" => "ENG",
+                         "name" => "Engineering",
+                         "states" => %{
+                           "nodes" => [
+                             %{
+                               "id" => "state-backlog",
+                               "name" => "Backlog",
+                               "type" => "backlog",
+                               "position" => 0,
+                               "color" => "#bec2c8",
+                               "description" => nil
+                             }
+                           ]
+                         }
+                       }
+                     ]
+                   }
+                 }
+               ]
+             }
+           }
+         }},
+        {:ok,
+         %{
+           "data" => %{
+             "workflowStateCreate" => %{
+               "success" => true,
+               "workflowState" => %{
+                 "id" => "state-todo",
+                 "name" => "Todo",
+                 "type" => "unstarted",
+                 "position" => 1,
+                 "color" => "#E2E2E2",
+                 "description" => "State used by the Symphony runner workflow.",
+                 "team" => %{"id" => "team-1", "key" => "ENG", "name" => "Engineering"}
+               }
+             }
+           }
+         }}
+      ]
+    )
+
+    assert {:ok, results} = Adapter.install_workflow_states([])
+    assert Enum.map(results, & &1.action) == [:unchanged, :created]
+    assert Enum.map(results, & &1.state.name) == ["Backlog", "Todo"]
     assert Enum.map(results, &(&1.projects |> List.first() |> Map.fetch!(:slug))) == ["project-slug", "project-slug"]
   end
 

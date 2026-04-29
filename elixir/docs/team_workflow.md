@@ -105,16 +105,25 @@ mise exec -- mix symphony.bootstrap
 ```
 
 Bootstrap discovers projects visible to the configured tracker, writes the project slug when there
-is only one match, installs the dispatch labels, installs the default issue template, creates saved
-views for `All`, `Ready`, `Paused`, plus each non-canceled Linear workflow state, adds those views to
-a `Symphony` sidebar folder for the authenticated Linear user, and runs the smoke check. If several
-projects are visible, rerun with `--project <slug>` or `--all-projects`.
+is only one match, installs the dispatch labels, creates missing states listed in
+`tracker.bootstrap_states`, installs the default issue template, creates saved views for `All`,
+`Ready`, `Paused`, plus each non-canceled Linear workflow state, adds those views to a `Symphony`
+sidebar folder for the authenticated Linear user, and runs the smoke check. If several projects are
+visible, rerun with `--project <slug>` or `--all-projects`.
 
 Install or repair just the dispatch labels without rerunning full bootstrap:
 
 ```bash
 mise exec -- mix symphony.tracker_label.install
 ```
+
+Install missing workflow states without rerunning full bootstrap:
+
+```bash
+mise exec -- mix symphony.tracker_state.install
+```
+
+The Linear adapter only creates missing states; it does not rewrite existing team workflow states.
 
 Install the default tracker issue template for the configured project team or teams:
 
