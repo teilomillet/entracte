@@ -7,6 +7,7 @@ defmodule SymphonyElixir.AgentRuntime.Headless do
   @port_line_bytes 1_048_576
   @max_output_bytes 100_000
   @max_event_text_bytes 1_000
+  @max_remote_prompt_bytes 128 * 1024
 
   @type session :: %{
           agent_runtime: :headless,
@@ -87,8 +88,10 @@ defmodule SymphonyElixir.AgentRuntime.Headless do
 
   defp start_port(%{worker_host: worker_host} = session, prompt, prompt_file)
        when is_binary(worker_host) do
-    remote_command = remote_launch_command(session.command, session.workspace, prompt_file, prompt)
-    SSH.start_port(worker_host, remote_command, line: @port_line_bytes)
+    with :ok <- validate_remote_prompt_size(prompt) do
+      remote_command = remote_launch_command(session.command, session.workspace, prompt_file, prompt)
+      SSH.start_port(worker_host, remote_command, line: @port_line_bytes)
+    end
   end
 
   defp local_launch_command(command, prompt_file) do
@@ -110,6 +113,12 @@ defmodule SymphonyElixir.AgentRuntime.Headless do
     rm -f "$prompt_file"
     exit $status
     """
+  end
+
+  defp validate_remote_prompt_size(prompt) when byte_size(prompt) <= @max_remote_prompt_bytes, do: :ok
+
+  defp validate_remote_prompt_size(prompt) do
+    {:error, {:remote_prompt_too_large, byte_size(prompt), @max_remote_prompt_bytes}}
   end
 
   defp await_exit(port, on_message, metadata, deadline_ms, pending_line, output) do
@@ -278,9 +287,16 @@ defmodule SymphonyElixir.AgentRuntime.Headless do
     "headless-" <> unique_id
   end
 
+  @doc false
+  @spec port_metadata_for_test(port(), String.t() | nil) :: map()
+  def port_metadata_for_test(port, worker_host), do: port_metadata(port, worker_host)
+
   defp port_metadata(port, worker_host) when is_port(port) do
-    {:os_pid, os_pid} = :erlang.port_info(port, :os_pid)
-    base_metadata = %{agent_runtime_pid: to_string(os_pid)}
+    base_metadata =
+      case :erlang.port_info(port, :os_pid) do
+        {:os_pid, os_pid} -> %{agent_runtime_pid: to_string(os_pid)}
+        _ -> %{}
+      end
 
     case worker_host do
       host when is_binary(host) -> Map.put(base_metadata, :worker_host, host)

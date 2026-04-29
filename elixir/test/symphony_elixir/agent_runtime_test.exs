@@ -168,6 +168,42 @@ defmodule SymphonyElixir.AgentRuntimeTest do
     end
   end
 
+  test "headless remote runner rejects prompts too large for a shell command argument" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-headless-remote-prompt-limit-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace = Path.join(test_root, "workspace")
+      File.mkdir_p!(workspace)
+
+      prompt = String.duplicate("x", 128 * 1024 + 1)
+      issue = headless_issue("MT-HEADLESS-REMOTE-LIMIT")
+      parent = self()
+      ref = make_ref()
+      on_message = fn message -> send(parent, {ref, message}) end
+
+      assert {:error, {:remote_prompt_too_large, prompt_bytes, max_bytes}} =
+               workspace
+               |> headless_session("true")
+               |> Map.put(:worker_host, "worker-01")
+               |> Headless.run_turn(prompt, issue, on_message: on_message)
+
+      assert prompt_bytes == byte_size(prompt)
+      assert max_bytes == 128 * 1024
+
+      assert_receive {^ref,
+                      %{
+                        event: :startup_failed,
+                        reason: {:remote_prompt_too_large, ^prompt_bytes, ^max_bytes}
+                      }}
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "headless runner uses the shared workspace guard" do
     test_root =
       Path.join(
@@ -420,6 +456,21 @@ defmodule SymphonyElixir.AgentRuntimeTest do
     after
       File.rm_rf(test_root)
     end
+  end
+
+  test "headless port metadata tolerates closed ports without an os pid" do
+    shell = System.find_executable("sh") || System.find_executable("bash")
+
+    port =
+      Port.open(
+        {:spawn_executable, String.to_charlist(shell)},
+        [:binary, :exit_status, args: [~c"-c", ~c"true"]]
+      )
+
+    Port.close(port)
+
+    assert Headless.port_metadata_for_test(port, nil) == %{}
+    assert Headless.port_metadata_for_test(port, "worker-01") == %{worker_host: "worker-01"}
   end
 
   test "workspace guard reports unreadable local paths and empty remote workspaces" do
