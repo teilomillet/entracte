@@ -21,7 +21,7 @@ description:
 ## Related Skills
 
 - `pull`: use this when push is rejected or sync is not clean (non-fast-forward,
-  merge conflict risk, or stale branch).
+  rebase conflict risk, or stale branch).
 
 ## Steps
 
@@ -31,8 +31,10 @@ description:
    remote URL is already configured.
 4. If push is not clean/rejected:
    - If the failure is a non-fast-forward or sync problem, run the `pull`
-     skill to merge `origin/main`, resolve conflicts, and rerun validation.
-   - Push again; use `--force-with-lease` only when history was rewritten.
+     skill to rebase or fast-forward onto `origin/main`, resolve conflicts, and
+     rerun validation.
+   - Push again; use `--force-with-lease` only when local history was rewritten
+     by a rebase.
    - If the failure is due to auth, permissions, or workflow restrictions on
      the configured remote, stop and surface the exact error instead of
      rewriting remotes or switching protocols as a workaround.
@@ -68,13 +70,13 @@ make -C elixir all
 git push -u origin HEAD
 
 # If that failed because the remote moved, use the pull skill. After
-# pull-skill resolution and re-validation, retry the normal push:
+# rebase/fast-forward sync and re-validation, retry the normal push:
 git push -u origin HEAD
 
 # If the configured remote rejects the push for auth, permissions, or workflow
 # restrictions, stop and surface the exact error.
 
-# Only if history was rewritten locally:
+# Only if local history was rewritten by a rebase:
 git push --force-with-lease origin HEAD
 
 # Ensure a PR exists (create only if missing)

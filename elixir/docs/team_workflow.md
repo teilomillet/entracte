@@ -161,10 +161,15 @@ Open `http://127.0.0.1:4000` on the runner machine to watch active work.
   queue.
 - Treat `agent-paused` as an intentional override. Use it when an issue should not start or should
   stop even if it is assigned and otherwise active.
+- Treat each issue as a task contract before adding `agent-ready`: desired outcome, current
+  evidence/signal, scope boundaries, acceptance criteria, validation, and unknowns should be visible
+  enough that the runner can execute without guessing.
 - Start with low concurrency, then raise `agent.max_concurrent_agents` after the team has observed
   review load and credit usage.
 - Keep acceptance criteria and validation requirements in the Linear issue. The workflow prompt tells
   the agent to mirror them into the workpad and execute them.
+- Keep branch history linear. The workflow syncs branches by rebase or fast-forward before handoff
+  and before merge; it should not merge `origin/main` into task branches.
 - A human should review PRs before moving issues to `Merging`.
 - The runner's dashboard and logs show token totals for the daemon, but spend attribution is by
   runner/Codex account. If per-person chargeback matters, use per-person runners or separate service

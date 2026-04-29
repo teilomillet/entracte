@@ -1,38 +1,42 @@
 ---
 name: pull
 description:
-  Pull latest origin/main into the current local branch and resolve merge
-  conflicts (aka update-branch). Use when Codex needs to sync a feature branch
-  with origin, perform a merge-based update (not rebase), and guide conflict
-  resolution best practices.
+  Rebase or fast-forward the current local branch onto latest origin/main and
+  resolve conflicts (aka update-branch). Use when Codex needs to sync a feature
+  branch with origin while preserving linear history.
 ---
 
 # Pull
 
 ## Workflow
 
-1. Verify git status is clean or commit/stash changes before merging.
+1. Verify git status is clean or commit/stash changes before syncing.
 2. Ensure rerere is enabled locally:
    - `git config rerere.enabled true`
    - `git config rerere.autoupdate true`
 3. Confirm remotes and branches:
    - Ensure the `origin` remote exists.
-   - Ensure the current branch is the one to receive the merge.
+   - Ensure the current branch is the one to sync.
 4. Fetch latest refs:
    - `git fetch origin`
-5. Sync the remote feature branch first:
-   - `git pull --ff-only origin $(git branch --show-current)`
+5. Sync the remote feature branch first if it already exists on `origin`:
+   - `branch=$(git branch --show-current)`
+   - `if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then git pull --ff-only origin "$branch"; fi`
    - This pulls branch updates made remotely (for example, a GitHub auto-commit)
-     before merging `origin/main`.
-6. Merge in order:
-   - Prefer `git -c merge.conflictstyle=zdiff3 merge origin/main` for clearer
+     before replaying local work on `origin/main`.
+6. Rebase onto latest main:
+   - Prefer `git -c merge.conflictstyle=zdiff3 rebase origin/main` for clearer
      conflict context.
+   - If the branch has no local commits and only needs to move forward,
+     `git merge --ff-only origin/main` is acceptable because it does not create
+     a merge commit.
 7. If conflicts appear, resolve them (see conflict guidance below), then:
    - `git add <files>`
-   - `git commit` (or `git merge --continue` if the merge is paused)
+   - `git rebase --continue`
 8. Verify with project checks (follow repo policy in `AGENTS.md`).
-9. Summarize the merge:
+9. Summarize the sync:
    - Call out the most challenging conflicts/files and how they were resolved.
+   - State whether the branch was rebased or fast-forwarded.
    - Note any assumptions or follow-ups.
 
 ## Conflict Resolution Guidance (Best Practices)
@@ -45,6 +49,8 @@ description:
     for a file-level view of intent.
   - With `merge.conflictstyle=zdiff3`, conflict markers include:
     - `<<<<<<<` ours, `|||||||` base, `=======` split, `>>>>>>>` theirs.
+    - During a rebase, `ours` is the target branch state being rebased onto,
+      and `theirs` is the commit currently being replayed.
     - Matching lines near the start/end are trimmed out of the conflict region,
       so focus on the differing core.
   - Summarize the intent of both changes, decide the semantically correct
@@ -71,7 +77,7 @@ description:
   - Run the CLI/tooling command that produced the generated file to recreate it
     cleanly, then stage the regenerated output.
 - For import conflicts where intent is unclear, accept both sides first:
-  - Keep all candidate imports temporarily, finish the merge, then run lint/type
+  - Keep all candidate imports temporarily, finish the rebase, then run lint/type
     checks to remove unused or incorrect imports safely.
 - After resolving, ensure no conflict markers remain:
   - `git diff --check`
@@ -96,5 +102,5 @@ Ask the user only when:
 - The branch is not the intended target, or the remote/branch names do not exist
   and cannot be determined locally.
 
-Otherwise, proceed with the merge, explain the decision briefly in notes, and
+Otherwise, proceed with the sync, explain the decision briefly in notes, and
 leave a clear, reviewable commit history.

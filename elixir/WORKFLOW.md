@@ -86,6 +86,12 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
 - Start every task by opening the tracking workpad comment and bringing it up to date before doing new implementation work.
 - Spend extra effort up front on planning and verification design before implementation.
 - Reproduce first: always confirm the current behavior/issue signal before changing code so the fix target is explicit.
+- Treat the issue plus workpad as an executable task contract: desired change,
+  current evidence, scope boundaries, acceptance criteria, validation, and
+  unknowns must be explicit before coding.
+- Keep branch history linear. Sync with `origin/main` by rebase or
+  fast-forward only; do not introduce merge commits while updating a work
+  branch.
 - Keep ticket metadata current (state, checklist, acceptance criteria, links).
 - Treat a single persistent Linear comment as the source of truth for progress.
 - Use that single workpad comment for all progress and handoff notes; do not post separate "done"/summary comments.
@@ -105,7 +111,7 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
 - `linear`: interact with Linear.
 - `commit`: produce clean, logical commits during implementation.
 - `push`: keep remote branch current and publish updates.
-- `pull`: keep branch updated with latest `origin/main` before handoff.
+- `pull`: rebase/fast-forward the branch onto latest `origin/main`.
 - `land`: when ticket reaches `Merging`, explicitly open and follow `.codex/skills/land/SKILL.md`, which includes the `land` loop.
 
 ## Status map
@@ -154,20 +160,25 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
     - Check off items that are already done.
     - Expand/fix the plan so it is comprehensive for current scope.
     - Ensure `Acceptance Criteria` and `Validation` are current and still make sense for the task.
-4.  Start work by writing/updating a hierarchical plan in the workpad comment.
+    - Ensure the `Task Contract` section is specific enough to execute without guessing.
+4.  Start work by writing/updating the `Task Contract` and a hierarchical plan in the workpad comment.
 5.  Ensure the workpad includes a compact environment stamp at the top as a code fence line:
     - Format: `<host>:<abs-workdir>@<short-sha>`
     - Example: `devbox-01:/home/dev-user/code/symphony-workspaces/MT-32@7bdde33bc`
     - Do not include metadata already inferable from Linear issue fields (`issue ID`, `status`, `branch`, `PR link`).
 6.  Add explicit acceptance criteria and TODOs in checklist form in the same comment.
+    - Fill `Task Contract` with desired outcome, current evidence/signal, in-scope work, out-of-scope work, validation contract, and unknowns.
+    - If the issue is broad, ambiguous, or mixes unrelated outcomes, narrow it into an executable task contract before implementation.
+    - If the contract cannot be narrowed without human product intent, move the issue to `Human Review` with a blocker brief instead of guessing.
     - If changes are user-facing, include a UI walkthrough acceptance criterion that describes the end-to-end user path to validate.
     - If changes touch app files or app behavior, add explicit app-specific flow checks to `Acceptance Criteria` in the workpad (for example: launch path, changed interaction path, and expected result path).
     - If the ticket description/comment context includes `Validation`, `Test Plan`, or `Testing` sections, copy those requirements into the workpad `Acceptance Criteria` and `Validation` sections as required checkboxes (no optional downgrade).
 7.  Run a principal-style self-review of the plan and refine it in the comment.
 8.  Before implementing, capture a concrete reproduction signal and record it in the workpad `Notes` section (command/output, screenshot, or deterministic UI behavior).
-9.  Run the `pull` skill to sync with latest `origin/main` before any code edits, then record the pull/sync result in the workpad `Notes`.
-    - Include a `pull skill evidence` note with:
-      - merge source(s),
+9.  Run the `pull` skill to rebase/fast-forward onto latest `origin/main` before any code edits, then record the sync result in the workpad `Notes`.
+    - Include a `sync evidence` note with:
+      - fetched source refs,
+      - method (`rebase` or `ff-only`),
       - result (`clean` or `conflicts resolved`),
       - resulting `HEAD` short SHA.
 10. Compact context and proceed to execution.
@@ -202,7 +213,7 @@ Use this only when completion is blocked by missing required tools or missing au
 
 ## Step 2: Execution phase (Todo -> In Progress -> Human Review)
 
-1.  Determine current repo state (`branch`, `git status`, `HEAD`) and verify the kickoff `pull` sync result is already recorded in the workpad before implementation continues.
+1.  Determine current repo state (`branch`, `git status`, `HEAD`) and verify the kickoff rebase/fast-forward sync result is already recorded in the workpad before implementation continues.
 2.  If current issue state is `Todo`, move it to `In Progress`; otherwise leave the current state unchanged.
 3.  Load the existing workpad comment and treat it as the active execution checklist.
     - Edit it liberally whenever reality changes (scope, risks, validation approach, discovered tasks).
@@ -224,7 +235,7 @@ Use this only when completion is blocked by missing required tools or missing au
 7.  Before every `git push` attempt, run the required validation for your scope and confirm it passes; if it fails, address issues and rerun until green, then commit and push changes.
 8.  Attach PR URL to the issue (prefer attachment; use the workpad comment only if attachment is unavailable).
     - Ensure the GitHub PR has label `symphony` (add it if missing).
-9.  Merge latest `origin/main` into branch, resolve conflicts, and rerun checks.
+9.  Rebase or fast-forward onto latest `origin/main`, resolve conflicts, and rerun checks. Do not merge `origin/main` into the work branch.
 10. Update the workpad comment with final checklist status and validation notes.
     - Mark completed plan/acceptance/validation checklist items as checked.
     - Add final handoff notes (commit + validation summary) in the same workpad comment.
@@ -273,6 +284,7 @@ Use this only when completion is blocked by missing required tools or missing au
 - Validation/tests are green for the latest commit.
 - PR feedback sweep is complete and no actionable comments remain.
 - PR checks are green, branch is pushed, and PR is linked on the issue.
+- Branch is rebased or fast-forwarded onto latest `origin/main` with no merge commits introduced by the agent.
 - Required PR metadata is present (`symphony` label).
 - If app-touching, runtime validation/media requirements from `App runtime validation (required)` are complete.
 
@@ -290,6 +302,8 @@ Use this only when completion is blocked by missing required tools or missing au
   title/description/acceptance criteria, same-project assignment, a `related`
   link to the current issue, and `blockedBy` when the follow-up depends on the
   current issue.
+- Do not merge `origin/main` into work branches. Use rebase or fast-forward
+  sync, and use `--force-with-lease` only after a local history rewrite.
 - Do not move to `Human Review` unless the `Completion bar before Human Review` is satisfied.
 - In `Human Review`, do not make changes; wait and poll.
 - If state is terminal (`Done`), do nothing and shut down.
@@ -306,6 +320,15 @@ Use this exact structure for the persistent workpad comment and keep it updated 
 ```text
 <hostname>:<abs-path>@<short-sha>
 ```
+
+### Task Contract
+
+- Desired outcome:
+- Current evidence/signal:
+- In scope:
+- Out of scope:
+- Validation contract:
+- Unknowns:
 
 ### Plan
 

@@ -18,9 +18,12 @@ defmodule SymphonyElixir.LinearTemplateInstaller do
   ## Context
   Relevant links, files, prior decisions, screenshots, or current behavior.
 
-  ## Scope
-  - Include:
-  - Exclude:
+  ## Task Contract
+  - Desired outcome:
+  - Current evidence/signal:
+  - In scope:
+  - Out of scope:
+  - Unknowns:
 
   ## Acceptance Criteria
   - [ ] Observable result 1

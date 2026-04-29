@@ -16,6 +16,8 @@ defmodule SymphonyElixir.LinearTemplateInstallerTest do
     assert input.teamId == "team-1"
     assert input.type == "issue"
     assert input.name == LinearTemplateInstaller.default_template_name()
+    assert input.templateData.description =~ "## Task Contract"
+    assert input.templateData.description =~ "- Out of scope:"
     assert input.templateData.description =~ "## Acceptance Criteria"
     assert input.templateData.description =~ "## Validation"
   end
