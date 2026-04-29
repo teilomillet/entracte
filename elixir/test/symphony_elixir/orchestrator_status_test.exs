@@ -952,7 +952,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     before_tick_ms = System.monotonic_time(:millisecond)
     send(pid, :tick)
     Process.sleep(100)
-    state = :sys.get_state(pid)
+    state = :sys.get_state(pid, 10_000)
 
     refute Process.alive?(worker_pid)
     refute Map.has_key?(state.running, issue_id)
@@ -1567,7 +1567,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
   end
 
   defp do_wait_for_snapshot(pid, predicate, deadline_ms) do
-    snapshot = GenServer.call(pid, :snapshot)
+    snapshot = GenServer.call(pid, :snapshot, 10_000)
 
     if predicate.(snapshot) do
       snapshot

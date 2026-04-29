@@ -1043,6 +1043,9 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     write_workflow_file!(Workflow.workflow_file_path(), agent_runner: "codex_app_server")
     assert Config.agent_runner() == :app_server
 
+    settings_with_missing_codex_command = put_in(Config.settings!().codex.command, nil)
+    assert {:error, :missing_codex_command} = Config.validate_settings_for_test(settings_with_missing_codex_command)
+
     write_workflow_file!(Workflow.workflow_file_path(), agent_runner: "unsupported")
     assert {:error, {:unsupported_agent_runner, "unsupported"}} = Config.validate!()
 

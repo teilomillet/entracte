@@ -107,6 +107,10 @@ defmodule SymphonyElixir.Config do
     end
   end
 
+  @doc false
+  @spec validate_settings_for_test(Schema.t()) :: :ok | {:error, term()}
+  def validate_settings_for_test(settings), do: validate_semantics(settings)
+
   @spec agent_runner() :: agent_runner()
   def agent_runner do
     settings!()
@@ -189,8 +193,8 @@ defmodule SymphonyElixir.Config do
 
   defp validate_app_server_runtime_settings(settings) do
     case settings.codex.command do
-      "" -> {:error, :missing_codex_command}
-      _command -> :ok
+      command when is_binary(command) and command != "" -> :ok
+      _command -> {:error, :missing_codex_command}
     end
   end
 
