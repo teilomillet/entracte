@@ -874,7 +874,11 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert config.gitlab.project_id == nil
     assert config.workspace.root == Path.join(System.tmp_dir!(), "symphony_workspaces")
     assert config.worker.max_concurrent_agents_per_host == nil
+    assert config.agent.runner == "app_server"
+    assert Config.agent_runner() == :app_server
     assert config.agent.max_concurrent_agents == 10
+    assert config.headless.command == nil
+    assert config.headless.timeout_ms == 3_600_000
     assert config.codex.command == "codex app-server"
 
     assert config.codex.approval_policy == %{
@@ -1016,6 +1020,46 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     write_workflow_file!(Workflow.workflow_file_path(), codex_command: "codex app-server")
     assert Config.settings!().codex.command == "codex app-server"
+  end
+
+  test "config supports agent runner selection and headless command settings" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_runner: "headless",
+      headless_command: "claude -p",
+      headless_timeout_ms: 120_000
+    )
+
+    settings = Config.settings!()
+    assert settings.agent.runner == "headless"
+    assert Config.agent_runner() == :headless
+    assert settings.headless.command == "claude -p"
+    assert settings.headless.timeout_ms == 120_000
+
+    assert {:ok, %{command: "claude -p", timeout_ms: 120_000}} =
+             Config.headless_runtime_settings()
+
+    assert :ok = Config.validate!()
+
+    write_workflow_file!(Workflow.workflow_file_path(), agent_runner: "codex_app_server")
+    assert Config.agent_runner() == :app_server
+
+    write_workflow_file!(Workflow.workflow_file_path(), agent_runner: "unsupported")
+    assert {:error, {:unsupported_agent_runner, "unsupported"}} = Config.validate!()
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_runner: "headless",
+      headless_command: "claude -p",
+      codex_command: ""
+    )
+
+    assert :ok = Config.validate!()
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_runner: "headless",
+      headless_command: " "
+    )
+
+    assert {:error, :missing_headless_command} = Config.validate!()
   end
 
   test "config resolves $VAR references for env-backed secret and path values" do

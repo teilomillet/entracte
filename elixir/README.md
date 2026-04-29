@@ -158,6 +158,7 @@ hooks:
   after_create: |
     git clone git@github.com:your-org/your-repo.git .
 agent:
+  runner: app_server
   max_concurrent_agents: 10
   max_turns: 20
 codex:
@@ -172,6 +173,9 @@ Title: {{ issue.title }} Body: {{ issue.description }}
 Notes:
 
 - If a value is missing, defaults are used.
+- `agent.runner` selects the execution primitive. `app_server` is the default and uses the Codex
+  app-server protocol. `headless` runs `headless.command` in the issue workspace and provides the
+  rendered issue prompt on stdin plus `SYMPHONY_AGENT_PROMPT_FILE`.
 - Safer Codex defaults are used when policy fields are omitted:
   - `codex.approval_policy` defaults to `{"reject":{"sandbox_approval":true,"rules":true,"mcp_elicitations":true}}`
   - `codex.thread_sandbox` defaults to `workspace-write`
@@ -185,7 +189,7 @@ Notes:
 - When `codex.turn_sandbox_policy` is set explicitly, Symphony passes the map through to Codex
   unchanged. Compatibility then depends on the targeted Codex app-server version rather than local
   Symphony validation.
-- `agent.max_turns` caps how many back-to-back Codex turns Symphony will run in a single agent
+- `agent.max_turns` caps how many back-to-back agent turns Symphony will run in a single agent
   invocation when a turn completes normally but the issue is still in an active state. Default: `20`.
 - If the Markdown body is blank, Symphony uses a default prompt template that includes the issue
   identifier, title, and body.
@@ -274,6 +278,17 @@ hooks:
     git clone --depth 1 "$SOURCE_REPO_URL" .
 codex:
   command: "${CODEX_BIN:-codex} --config 'model=\"gpt-5.5\"' app-server"
+```
+
+For a headless CLI such as Claude, select the headless runner and provide the command that should
+consume the prompt from stdin:
+
+```yaml
+agent:
+  runner: headless
+headless:
+  command: "${CLAUDE_BIN:-claude} -p"
+  timeout_ms: 3600000
 ```
 
 ### Multiple Projects

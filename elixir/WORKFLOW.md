@@ -45,8 +45,12 @@ hooks:
   before_remove: |
     cd elixir && mise exec -- mix workspace.before_remove
 agent:
+  runner: app_server
   max_concurrent_agents: 10
   max_turns: 20
+headless:
+  command: null
+  timeout_ms: 3600000
 codex:
   command: "${CODEX_BIN:-codex} --config shell_environment_policy.inherit=all --config 'model=\"gpt-5.5\"' --config model_reasoning_effort=xhigh app-server"
   approval_policy: never

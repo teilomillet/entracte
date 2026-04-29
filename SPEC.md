@@ -324,7 +324,10 @@ Fields:
 - `session_id` (string, `<thread_id>-<turn_id>`)
 - `thread_id` (string)
 - `turn_id` (string)
+- `agent_runtime_pid` (string or null)
+  - OS process ID for the selected agent runtime when available.
 - `codex_app_server_pid` (string or null)
+  - Backward-compatible Codex app-server process ID for the app-server runner.
 - `last_codex_event` (string/enum or null)
 - `last_codex_timestamp` (timestamp or null)
 - `last_codex_message` (summarized payload)
@@ -426,6 +429,7 @@ Top-level keys:
 - `workspace`
 - `hooks`
 - `agent`
+- `headless`
 - `codex`
 
 Unknown keys SHOULD be ignored for forward compatibility.
@@ -524,6 +528,12 @@ Fields:
 
 Fields:
 
+- `runner` (string)
+  - Default: `app_server`
+  - Supported core values: `app_server`, `headless`
+  - `app_server` uses the Codex app-server integration and the `codex` config object.
+  - `headless` runs a configured command without an app-server protocol and uses the `headless`
+    config object.
 - `max_concurrent_agents` (integer)
   - Default: `10`
   - Changes SHOULD be re-applied at runtime and affect subsequent dispatch decisions.
@@ -539,7 +549,21 @@ Fields:
   - State keys are normalized (`lowercase`) for lookup.
   - Invalid entries (non-positive or non-numeric) are ignored.
 
-#### 5.3.7 `codex` (object)
+#### 5.3.7 `headless` (object)
+
+Fields:
+
+- `command` (string shell command)
+  - REQUIRED when `agent.runner=headless`.
+  - The runtime launches this command via `bash -lc` in the per-issue workspace.
+  - The rendered issue prompt MUST be made available on stdin.
+  - Implementations MAY also expose the prompt file path through `SYMPHONY_AGENT_PROMPT_FILE` for
+    CLIs that prefer explicit file reads.
+- `timeout_ms` (integer)
+  - Default: `3600000` (1 hour)
+  - Bounds a single headless command attempt.
+
+#### 5.3.8 `codex` (object)
 
 Fields:
 
@@ -683,7 +707,8 @@ Validation checks:
 - `tracker.api_key` is present after `$` resolution.
 - `tracker.project_slug` or `tracker.project_slugs` is present when REQUIRED by the selected tracker kind.
 - `dispatch.ready_label` and `dispatch.paused_label` are present if dispatch labels are implemented.
-- `codex.command` is present and non-empty.
+- `codex.command` is present and non-empty when `agent.runner=app_server`.
+- `headless.command` is present and non-empty when `agent.runner=headless`.
 
 ### 6.4 Core Config Fields Summary (Cheat Sheet)
 
@@ -709,10 +734,13 @@ not require recognizing or validating extension fields unless that extension is 
 - `hooks.after_run`: shell script or null
 - `hooks.before_remove`: shell script or null
 - `hooks.timeout_ms`: integer, default `60000`
+- `agent.runner`: string, default `"app_server"`
 - `agent.max_concurrent_agents`: integer, default `10`
 - `agent.max_turns`: integer, default `20`
 - `agent.max_retry_backoff_ms`: integer, default `300000` (5m)
 - `agent.max_concurrent_agents_by_state`: map of positive integers, default `{}`
+- `headless.command`: shell command string, required when `agent.runner=headless`
+- `headless.timeout_ms`: integer, default `3600000`
 - `codex.command`: shell command string, default `codex app-server`
 - `codex.approval_policy`: Codex `AskForApproval` value, default implementation-defined
 - `codex.thread_sandbox`: Codex `SandboxMode` value, default implementation-defined
@@ -1036,9 +1064,12 @@ Invariant 3: Workspace key is sanitized.
 
 ## 10. Agent Runner Protocol (Coding Agent Integration)
 
-This section defines Symphony's language-neutral responsibilities when integrating a Codex
-app-server. The Codex app-server protocol for the targeted Codex version is the source of truth for
-protocol schemas, message payloads, transport framing, and method names.
+This section defines Symphony's language-neutral responsibilities when integrating a coding-agent
+runtime. `agent.runner=app_server` uses the Codex app-server protocol. `agent.runner=headless` uses a
+plain command process that receives the rendered prompt without a JSON-RPC app-server session. The
+Codex app-server protocol for the targeted Codex version is the source of truth for protocol
+schemas, message payloads, transport framing, and method names when the app-server runner is
+selected.
 
 Protocol source of truth:
 
@@ -1054,16 +1085,21 @@ Protocol source of truth:
 
 Subprocess launch parameters:
 
-- Command: `codex.command`
-- Invocation: `bash -lc <codex.command>`
+- Runner selection: `agent.runner`
+- App-server command: `codex.command`
+- Headless command: `headless.command`
+- Invocation: `bash -lc <command for selected runner>`
 - Working directory: workspace path
-- Transport/framing: the protocol transport required by the targeted Codex app-server version
+- Transport/framing: app-server protocol transport for `app_server`; process exit status and
+  stdout/stderr for `headless`
 
 Notes:
 
-- The default command is `codex app-server`.
+- The default runner is `app_server`; the default app-server command is `codex app-server`.
 - Approval policy, sandbox policy, cwd, prompt input, and OPTIONAL tool declarations are supplied
-  using fields supported by the targeted Codex app-server version.
+  using fields supported by the targeted Codex app-server version only for `app_server`.
+- For `headless`, the rendered prompt is available on stdin and the implementation MAY set
+  `SYMPHONY_AGENT_PROMPT_FILE` to the prompt file path while the command runs.
 
 RECOMMENDED additional process settings:
 
@@ -1130,7 +1166,8 @@ include:
 
 - `event` (enum/string)
 - `timestamp` (UTC timestamp)
-- `codex_app_server_pid` (if available)
+- `agent_runtime_pid` (if available)
+- `codex_app_server_pid` (if available for the app-server runner)
 - OPTIONAL `usage` map (token counts)
 - payload fields as needed
 
@@ -1981,6 +2018,7 @@ function dispatch_issue(issue, state, attempt):
     identifier: issue.identifier,
     issue,
     session_id: null,
+    agent_runtime_pid: null,
     codex_app_server_pid: null,
     last_codex_message: null,
     last_codex_event: null,

@@ -26,6 +26,13 @@ defmodule SymphonyElixir.Config do
           turn_sandbox_policy: map()
         }
 
+  @type agent_runner :: :app_server | :headless | :unsupported
+
+  @type headless_runtime_settings :: %{
+          command: String.t(),
+          timeout_ms: pos_integer()
+        }
+
   @spec settings() :: {:ok, Schema.t()} | {:error, term()}
   def settings do
     case Workflow.current() do
@@ -98,6 +105,14 @@ defmodule SymphonyElixir.Config do
     end
   end
 
+  @spec agent_runner() :: agent_runner()
+  def agent_runner do
+    settings!()
+    |> Map.fetch!(:agent)
+    |> Map.fetch!(:runner)
+    |> normalize_agent_runner()
+  end
+
   @spec codex_runtime_settings(Path.t() | nil, keyword()) ::
           {:ok, codex_runtime_settings()} | {:error, term()}
   def codex_runtime_settings(workspace \\ nil, opts \\ []) do
@@ -114,24 +129,91 @@ defmodule SymphonyElixir.Config do
     end
   end
 
+  @spec headless_runtime_settings() :: {:ok, headless_runtime_settings()} | {:error, term()}
+  def headless_runtime_settings do
+    with {:ok, settings} <- settings() do
+      headless_runtime_settings(settings)
+    end
+  end
+
   defp validate_semantics(settings) do
+    with :ok <- validate_tracker_semantics(settings.tracker) do
+      validate_agent_runtime_semantics(settings)
+    end
+  end
+
+  defp validate_tracker_semantics(tracker) do
     cond do
-      is_nil(settings.tracker.kind) ->
+      is_nil(tracker.kind) ->
         {:error, :missing_tracker_kind}
 
-      settings.tracker.kind not in ["linear", "memory"] ->
-        {:error, {:unsupported_tracker_kind, settings.tracker.kind}}
+      tracker.kind not in ["linear", "memory"] ->
+        {:error, {:unsupported_tracker_kind, tracker.kind}}
 
-      settings.tracker.kind == "linear" and not is_binary(settings.tracker.api_key) ->
+      tracker.kind == "linear" and not is_binary(tracker.api_key) ->
         {:error, :missing_linear_api_token}
 
-      settings.tracker.kind == "linear" and configured_project_slugs(settings.tracker) == [] ->
+      tracker.kind == "linear" and configured_project_slugs(tracker) == [] ->
         {:error, :missing_linear_project_slug}
 
       true ->
         :ok
     end
   end
+
+  defp validate_agent_runtime_semantics(settings) do
+    case normalize_agent_runner(settings.agent.runner) do
+      :unsupported ->
+        {:error, {:unsupported_agent_runner, settings.agent.runner}}
+
+      :app_server ->
+        validate_app_server_runtime_settings(settings)
+
+      :headless ->
+        validate_headless_runtime_settings(settings)
+    end
+  end
+
+  defp validate_app_server_runtime_settings(settings) do
+    case settings.codex.command do
+      "" -> {:error, :missing_codex_command}
+      _command -> :ok
+    end
+  end
+
+  defp validate_headless_runtime_settings(settings) do
+    case headless_runtime_settings(settings) do
+      {:ok, _settings} ->
+        :ok
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp headless_runtime_settings(settings) do
+    command = settings.headless.command
+
+    if blank?(command) do
+      {:error, :missing_headless_command}
+    else
+      {:ok, %{command: command, timeout_ms: settings.headless.timeout_ms}}
+    end
+  end
+
+  defp blank?(value) when is_binary(value), do: String.trim(value) == ""
+  defp blank?(_value), do: true
+
+  defp normalize_agent_runner(runner) when is_binary(runner) do
+    case runner |> String.trim() |> String.downcase() do
+      "app_server" -> :app_server
+      "codex_app_server" -> :app_server
+      "headless" -> :headless
+      _ -> :unsupported
+    end
+  end
+
+  defp normalize_agent_runner(_runner), do: :unsupported
 
   defp configured_project_slugs(tracker) do
     tracker

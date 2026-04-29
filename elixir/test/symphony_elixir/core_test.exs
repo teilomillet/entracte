@@ -72,9 +72,7 @@ defmodule SymphonyElixir.CoreTest do
       codex_command: ""
     )
 
-    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
-    assert message =~ "codex.command"
-    assert message =~ "can't be blank"
+    assert {:error, :missing_codex_command} = Config.validate!()
 
     write_workflow_file!(Workflow.workflow_file_path(), codex_command: "   ")
     assert :ok = Config.validate!()
