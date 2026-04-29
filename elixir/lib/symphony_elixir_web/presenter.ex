@@ -7,6 +7,7 @@ defmodule SymphonyElixirWeb.Presenter do
 
   @milestone_limit 4
   @diagnostic_limit 8
+  @changed_files_limit 8
   @milestone_rules [
     {:command_failed, "danger", "Command failed", :raw},
     {:files_changed, "edit", "Updated files", :raw},
@@ -115,13 +116,15 @@ defmodule SymphonyElixirWeb.Presenter do
 
   defp running_entry_payload(entry) do
     activity = running_activity_payload(entry)
+    workspace_path = Map.get(entry, :workspace_path)
 
     %{
       issue_id: entry.issue_id,
       issue_identifier: entry.identifier,
       state: entry.state,
       worker_host: Map.get(entry, :worker_host),
-      workspace_path: Map.get(entry, :workspace_path),
+      workspace_path: workspace_path,
+      workspace_git: workspace_git_payload(workspace_path),
       session_id: entry.session_id,
       turn_count: Map.get(entry, :turn_count, 0),
       last_event: entry.last_codex_event,
@@ -154,10 +157,12 @@ defmodule SymphonyElixirWeb.Presenter do
 
   defp running_issue_payload(running) do
     activity = running_activity_payload(running)
+    workspace_path = Map.get(running, :workspace_path)
 
     %{
       worker_host: Map.get(running, :worker_host),
-      workspace_path: Map.get(running, :workspace_path),
+      workspace_path: workspace_path,
+      workspace_git: workspace_git_payload(workspace_path),
       session_id: running.session_id,
       turn_count: Map.get(running, :turn_count, 0),
       state: running.state,
@@ -423,6 +428,220 @@ defmodule SymphonyElixirWeb.Presenter do
 
   defp summarize_message(nil), do: nil
   defp summarize_message(message), do: StatusDashboard.humanize_codex_message(message)
+
+  defp workspace_git_payload(path) when is_binary(path) do
+    if File.dir?(path) do
+      case git(path, ["status", "--porcelain=v1", "--branch"]) do
+        {:ok, status} -> workspace_git_from_status(path, status)
+        {:error, reason} -> workspace_git_unavailable("git status failed: #{reason}")
+      end
+    else
+      workspace_git_unavailable("workspace missing")
+    end
+  end
+
+  defp workspace_git_payload(_path), do: workspace_git_unavailable("workspace unavailable")
+
+  defp workspace_git_from_status(path, status) do
+    branch = branch_payload(status)
+    head = head_payload(path)
+
+    %{
+      available: true,
+      branch: branch.branch,
+      branch_label: branch.label,
+      detached: branch.detached,
+      rebasing: rebasing?(path),
+      head: head,
+      base: base_payload(path),
+      relation: relation_payload(path),
+      branch_diff: branch_diff_payload(path),
+      working_tree: working_tree_payload(status),
+      published: published_payload(path, branch.branch, head)
+    }
+  end
+
+  defp workspace_git_unavailable(reason), do: %{available: false, reason: reason}
+
+  defp git(path, args) do
+    case System.cmd("git", ["-C", path | args], stderr_to_stdout: true) do
+      {output, 0} -> {:ok, String.trim_trailing(output)}
+      {output, _status} -> {:error, output |> String.trim() |> compact_detail()}
+    end
+  rescue
+    error -> {:error, Exception.message(error)}
+  end
+
+  defp branch_payload(status) do
+    status
+    |> String.split("\n", parts: 2)
+    |> List.first()
+    |> parse_branch_line()
+  end
+
+  defp parse_branch_line("## HEAD" <> _rest), do: %{branch: nil, label: "detached HEAD", detached: true}
+
+  defp parse_branch_line("## " <> branch_line) do
+    branch =
+      branch_line
+      |> String.split(["...", " "], parts: 2)
+      |> List.first()
+
+    %{branch: branch, label: branch, detached: false}
+  end
+
+  defp parse_branch_line(_line), do: %{branch: nil, label: "unknown", detached: false}
+
+  defp head_payload(path) do
+    case git(path, ["log", "-1", "--format=%H%x00%s"]) do
+      {:ok, output} ->
+        case String.split(output, <<0>>, parts: 2) do
+          [sha, subject] -> %{sha: sha, short_sha: short_sha(sha), subject: subject}
+          [sha] -> %{sha: sha, short_sha: short_sha(sha), subject: nil}
+        end
+
+      {:error, reason} ->
+        %{sha: nil, short_sha: nil, subject: reason}
+    end
+  end
+
+  defp base_payload(path) do
+    case git(path, ["rev-parse", "--verify", "origin/main"]) do
+      {:ok, sha} -> %{name: "origin/main", sha: sha, short_sha: short_sha(sha)}
+      {:error, reason} -> %{name: "origin/main", sha: nil, short_sha: nil, error: reason}
+    end
+  end
+
+  defp relation_payload(path) do
+    case git(path, ["rev-list", "--left-right", "--count", "origin/main...HEAD"]) do
+      {:ok, output} ->
+        case output |> String.split(~r/\s+/, trim: true) |> Enum.map(&Integer.parse/1) do
+          [{behind, ""}, {ahead, ""}] -> %{ahead: ahead, behind: behind}
+          _ -> %{ahead: nil, behind: nil}
+        end
+
+      {:error, _reason} ->
+        %{ahead: nil, behind: nil}
+    end
+  end
+
+  defp branch_diff_payload(path) do
+    case git(path, ["diff", "--name-status", "origin/main...HEAD"]) do
+      {:ok, output} ->
+        files =
+          output
+          |> String.split("\n", trim: true)
+          |> Enum.map(&branch_diff_file_payload/1)
+
+        %{changed_count: length(files), files: Enum.take(files, @changed_files_limit), hidden_count: max(length(files) - @changed_files_limit, 0)}
+
+      {:error, reason} ->
+        %{changed_count: nil, files: [], hidden_count: 0, error: reason}
+    end
+  end
+
+  defp branch_diff_file_payload(line) do
+    [status | paths] = String.split(line, "\t", trim: true)
+    path = List.last(paths) || ""
+
+    %{
+      path: path,
+      status: status,
+      kind: branch_diff_kind(status)
+    }
+  end
+
+  defp published_payload(_path, nil, _head), do: %{branch: nil, has_remote_branch: false, head_pushed: false, published: false}
+
+  defp published_payload(path, branch, head) do
+    case git(path, ["rev-parse", "--verify", "refs/remotes/origin/#{branch}"]) do
+      {:ok, sha} ->
+        head_pushed = Map.get(head, :sha) == sha
+
+        %{
+          branch: "origin/#{branch}",
+          has_remote_branch: true,
+          head_pushed: head_pushed,
+          published: head_pushed,
+          sha: sha,
+          short_sha: short_sha(sha)
+        }
+
+      {:error, _reason} ->
+        %{branch: "origin/#{branch}", has_remote_branch: false, head_pushed: false, published: false}
+    end
+  end
+
+  defp working_tree_payload(status) do
+    files =
+      status
+      |> String.split("\n", trim: true)
+      |> Enum.reject(&String.starts_with?(&1, "## "))
+      |> Enum.map(&changed_file_payload/1)
+
+    conflict_count = Enum.count(files, & &1.conflict)
+
+    %{
+      clean: files == [],
+      changed_count: length(files),
+      staged_count: Enum.count(files, & &1.staged),
+      unstaged_count: Enum.count(files, & &1.unstaged),
+      untracked_count: Enum.count(files, &(&1.kind == "untracked")),
+      conflict_count: conflict_count,
+      files: Enum.take(files, @changed_files_limit),
+      hidden_count: max(length(files) - @changed_files_limit, 0)
+    }
+  end
+
+  defp changed_file_payload("?? " <> path) do
+    %{path: path, status: "??", kind: "untracked", staged: false, unstaged: false, conflict: false}
+  end
+
+  defp changed_file_payload(line) do
+    status = String.slice(line, 0, 2)
+    path = line |> String.slice(3..-1//1) |> to_string()
+
+    %{
+      path: path,
+      status: status,
+      kind: file_change_kind(status),
+      staged: String.at(status, 0) not in [" ", "?"],
+      unstaged: String.at(status, 1) not in [" ", "?"],
+      conflict: conflict_status?(status)
+    }
+  end
+
+  defp file_change_kind(status) do
+    cond do
+      conflict_status?(status) -> "conflict"
+      String.contains?(status, "A") -> "added"
+      String.contains?(status, "D") -> "deleted"
+      String.contains?(status, "R") -> "renamed"
+      String.contains?(status, "M") -> "modified"
+      true -> "changed"
+    end
+  end
+
+  defp branch_diff_kind("A" <> _rest), do: "added"
+  defp branch_diff_kind("D" <> _rest), do: "deleted"
+  defp branch_diff_kind("R" <> _rest), do: "renamed"
+  defp branch_diff_kind("M" <> _rest), do: "modified"
+  defp branch_diff_kind(_status), do: "changed"
+
+  defp conflict_status?(status), do: status in ["DD", "AU", "UD", "UA", "DU", "AA", "UU"]
+
+  defp rebasing?(path) do
+    case git(path, ["rev-parse", "--git-dir"]) do
+      {:ok, git_dir} ->
+        git_dir = Path.expand(git_dir, path)
+        File.exists?(Path.join(git_dir, "rebase-merge")) or File.exists?(Path.join(git_dir, "rebase-apply"))
+
+      {:error, _reason} ->
+        false
+    end
+  end
+
+  defp short_sha(sha) when is_binary(sha), do: String.slice(String.trim(sha), 0, 7)
 
   defp due_at_iso8601(due_in_ms) when is_integer(due_in_ms) do
     DateTime.utc_now()

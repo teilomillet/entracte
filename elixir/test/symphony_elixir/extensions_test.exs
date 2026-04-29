@@ -765,6 +765,7 @@ defmodule SymphonyElixir.ExtensionsTest do
                  "state" => "In Progress",
                  "worker_host" => nil,
                  "workspace_path" => nil,
+                 "workspace_git" => %{"available" => false, "reason" => "workspace unavailable"},
                  "session_id" => "thread-http",
                  "turn_count" => 7,
                  "last_event" => "notification",
@@ -833,6 +834,7 @@ defmodule SymphonyElixir.ExtensionsTest do
              "running" => %{
                "worker_host" => nil,
                "workspace_path" => nil,
+               "workspace_git" => %{"available" => false, "reason" => "workspace unavailable"},
                "session_id" => "thread-http",
                "turn_count" => 7,
                "state" => "In Progress",
@@ -936,6 +938,47 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert [%{"label" => "Checked GitHub auth"}] = running["milestones"]
     assert running["diagnostics"]["hidden_count"] == 0
     assert length(running["diagnostics"]["events"]) == 3
+  end
+
+  test "phoenix observability api includes git workspace progress" do
+    workspace = git_workspace!("dashboard-workspace-git")
+    orchestrator_name = Module.concat(__MODULE__, :HttpWorkspaceGitOrchestrator)
+
+    snapshot =
+      static_snapshot()
+      |> put_in([:running, Access.at(0), :workspace_path], workspace)
+
+    {:ok, _pid} =
+      StaticOrchestrator.start_link(
+        name: orchestrator_name,
+        snapshot: snapshot
+      )
+
+    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
+
+    workspace_git =
+      build_conn()
+      |> get("/api/v1/state")
+      |> json_response(200)
+      |> Map.fetch!("running")
+      |> List.first()
+      |> Map.fetch!("workspace_git")
+
+    assert workspace_git["available"] == true
+    assert workspace_git["branch"] == "feature"
+    assert workspace_git["head"]["subject"] == "feature work"
+    assert workspace_git["base"]["short_sha"]
+    assert workspace_git["relation"] == %{"ahead" => 1, "behind" => 0}
+    assert workspace_git["working_tree"]["clean"] == true
+
+    assert workspace_git["published"] == %{
+             "branch" => "origin/feature",
+             "has_remote_branch" => false,
+             "head_pushed" => false,
+             "published" => false
+           }
+
+    assert [%{"path" => "feature.txt", "status" => "A", "kind" => "added"}] = workspace_git["branch_diff"]["files"]
   end
 
   test "phoenix observability api preserves 405, 404, and unavailable behavior" do
@@ -1233,6 +1276,33 @@ defmodule SymphonyElixir.ExtensionsTest do
       codex_totals: %{input_tokens: 4, output_tokens: 8, total_tokens: 12, seconds_running: 42.5},
       rate_limits: %{"primary" => %{"remaining" => 11}}
     }
+  end
+
+  defp git_workspace!(name) do
+    path = Path.join(System.tmp_dir!(), "#{name}-#{System.unique_integer([:positive])}")
+    File.rm_rf!(path)
+    File.mkdir_p!(path)
+
+    git!(path, ["init", "-b", "main"])
+    git!(path, ["config", "user.email", "test@example.com"])
+    git!(path, ["config", "user.name", "Test User"])
+    File.write!(Path.join(path, "README.md"), "base\n")
+    git!(path, ["add", "README.md"])
+    git!(path, ["commit", "-m", "base"])
+    git!(path, ["update-ref", "refs/remotes/origin/main", "HEAD"])
+    git!(path, ["checkout", "-b", "feature"])
+    File.write!(Path.join(path, "feature.txt"), "feature\n")
+    git!(path, ["add", "feature.txt"])
+    git!(path, ["commit", "-m", "feature work"])
+
+    path
+  end
+
+  defp git!(path, args) do
+    case System.cmd("git", ["-C", path | args], stderr_to_stdout: true) do
+      {_output, 0} -> :ok
+      {output, status} -> flunk("git #{Enum.join(args, " ")} failed with #{status}: #{output}")
+    end
   end
 
   defp wait_for_bound_port do

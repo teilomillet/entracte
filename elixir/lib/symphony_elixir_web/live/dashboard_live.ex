@@ -158,6 +158,75 @@ defmodule SymphonyElixirWeb.DashboardLive do
                   </div>
                 </div>
 
+                <%= if entry.workspace_git && entry.workspace_git.available do %>
+                  <div class="workstate-panel">
+                    <div class="workstate-header">
+                      <div class="workstate-main">
+                        <p class="workstate-kicker">Working copy</p>
+                        <p class="workstate-title">
+                          <%= entry.workspace_git.branch_label %>
+                        </p>
+                        <p class="workstate-detail">
+                          <%= git_head_summary(entry.workspace_git) %>
+                        </p>
+                      </div>
+                      <div class="workstate-badges">
+                        <span class={workstate_badge_class(entry.workspace_git)}>
+                          <%= workstate_stage(entry.workspace_git) %>
+                        </span>
+                        <span class="workstate-chip"><%= git_relation(entry.workspace_git) %></span>
+                        <span class="workstate-chip"><%= published_label(entry.workspace_git) %></span>
+                      </div>
+                    </div>
+
+                    <div class="workstate-grid">
+                      <div>
+                        <p class="workstate-subtitle">Branch changes</p>
+                        <%= if entry.workspace_git.branch_diff.changed_count in [0, nil] do %>
+                          <p class="workstate-empty">No committed branch diff from origin/main.</p>
+                        <% else %>
+                          <ul class="workstate-file-list">
+                            <li :for={file <- entry.workspace_git.branch_diff.files} class="workstate-file">
+                              <span class={file_status_class(file.kind)}><%= file.status %></span>
+                              <span class="workstate-file-path"><%= file.path %></span>
+                            </li>
+                          </ul>
+                          <%= if entry.workspace_git.branch_diff.hidden_count > 0 do %>
+                            <p class="workstate-more">
+                              +<%= entry.workspace_git.branch_diff.hidden_count %> more files
+                            </p>
+                          <% end %>
+                        <% end %>
+                      </div>
+
+                      <div>
+                        <p class="workstate-subtitle">Uncommitted files</p>
+                        <%= if entry.workspace_git.working_tree.clean do %>
+                          <p class="workstate-empty">Working tree clean.</p>
+                        <% else %>
+                          <ul class="workstate-file-list">
+                            <li :for={file <- entry.workspace_git.working_tree.files} class="workstate-file">
+                              <span class={file_status_class(file.kind)}><%= file.status %></span>
+                              <span class="workstate-file-path"><%= file.path %></span>
+                            </li>
+                          </ul>
+                          <%= if entry.workspace_git.working_tree.hidden_count > 0 do %>
+                            <p class="workstate-more">
+                              +<%= entry.workspace_git.working_tree.hidden_count %> more files
+                            </p>
+                          <% end %>
+                        <% end %>
+                      </div>
+                    </div>
+                  </div>
+                <% else %>
+                  <div class="workstate-panel workstate-panel-muted">
+                    <p class="workstate-empty">
+                      Workspace state unavailable: <%= entry.workspace_git && entry.workspace_git.reason || "unknown" %>
+                    </p>
+                  </div>
+                <% end %>
+
                 <%= if entry.milestones == [] do %>
                   <p class="empty-state compact-empty">No meaningful milestone yet.</p>
                 <% else %>
@@ -448,6 +517,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
 
   defp focus_badge_class(kind), do: "focus-badge focus-badge-#{css_token(kind)}"
   defp milestone_dot_class(kind), do: "milestone-dot milestone-dot-#{css_token(kind)}"
+  defp file_status_class(kind), do: "file-status file-status-#{css_token(kind)}"
 
   defp css_token(kind) do
     kind
@@ -459,6 +529,66 @@ defmodule SymphonyElixirWeb.DashboardLive do
   defp focus_detail(%{detail: detail}) when is_binary(detail) and detail != "", do: detail
   defp focus_detail(%{label: label}) when is_binary(label), do: label
   defp focus_detail(_focus), do: "Waiting for activity"
+
+  defp workstate_stage(%{rebasing: true}), do: "Rebasing"
+
+  defp workstate_stage(%{working_tree: %{conflict_count: count}}) when is_integer(count) and count > 0,
+    do: "Conflict"
+
+  defp workstate_stage(%{working_tree: %{changed_count: count}}) when is_integer(count) and count > 0,
+    do: "Editing"
+
+  defp workstate_stage(%{relation: %{ahead: ahead}, published: %{published: true}}) when is_integer(ahead) and ahead > 0,
+    do: "Pushed"
+
+  defp workstate_stage(%{relation: %{ahead: ahead}}) when is_integer(ahead) and ahead > 0,
+    do: "Local commit"
+
+  defp workstate_stage(%{relation: %{behind: behind}}) when is_integer(behind) and behind > 0,
+    do: "Behind main"
+
+  defp workstate_stage(_git), do: "Synced"
+
+  defp workstate_badge_class(%{working_tree: %{conflict_count: count}}) when is_integer(count) and count > 0,
+    do: "workstate-badge workstate-badge-danger"
+
+  defp workstate_badge_class(%{rebasing: true}), do: "workstate-badge workstate-badge-warning"
+
+  defp workstate_badge_class(%{working_tree: %{changed_count: count}}) when is_integer(count) and count > 0,
+    do: "workstate-badge workstate-badge-warning"
+
+  defp workstate_badge_class(_git), do: "workstate-badge"
+
+  defp git_head_summary(%{head: %{short_sha: short_sha, subject: subject}, base: %{short_sha: base_sha}}) do
+    head = [short_sha, subject] |> Enum.reject(&blank?/1) |> Enum.join(" ")
+    base = if blank?(base_sha), do: "base n/a", else: "base #{base_sha}"
+
+    [head, base]
+    |> Enum.reject(&blank?/1)
+    |> Enum.join(" · ")
+  end
+
+  defp git_head_summary(_git), do: "No git summary available"
+
+  defp git_relation(%{relation: %{ahead: ahead, behind: behind}}) when is_integer(ahead) and is_integer(behind) do
+    cond do
+      ahead > 0 and behind > 0 -> "+#{ahead} / -#{behind}"
+      ahead > 0 -> "+#{ahead}"
+      behind > 0 -> "-#{behind}"
+      true -> "even"
+    end
+  end
+
+  defp git_relation(_git), do: "unknown"
+
+  defp published_label(%{published: %{published: true}}), do: "pushed"
+  defp published_label(%{published: %{has_remote_branch: true}}), do: "unpushed head"
+  defp published_label(_git), do: "not pushed"
+
+  defp blank?(nil), do: true
+  defp blank?(""), do: true
+  defp blank?(value) when is_binary(value), do: String.trim(value) == ""
+  defp blank?(_value), do: false
 
   defp diagnostic_count(%{events: events, hidden_count: hidden_count}) when is_list(events) do
     visible_count = length(events)

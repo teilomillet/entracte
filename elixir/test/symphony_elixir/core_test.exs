@@ -114,6 +114,9 @@ defmodule SymphonyElixir.CoreTest do
 
     assert {:ok, %{config: config, prompt: prompt}} = Workflow.load()
     assert is_map(config)
+    assert prompt =~ "@sourcery-ai review"
+    assert prompt =~ "Wait for the Sourcery review run to complete"
+    assert prompt =~ "not merely for the first Sourcery message"
 
     tracker = Map.get(config, "tracker", %{})
     assert is_map(tracker)

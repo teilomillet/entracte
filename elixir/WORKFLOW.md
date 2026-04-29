@@ -209,7 +209,15 @@ When a ticket has an attached PR, run this protocol before moving to `Human Revi
    - explicit, justified pushback reply is posted on that thread.
 4. Update the workpad plan/checklist to include each feedback item and its resolution status.
 5. Re-run validation after feedback-driven changes and push updates.
-6. Repeat this sweep until there are no outstanding actionable comments.
+6. If code, tests, docs, or generated artifacts changed since the latest completed Sourcery review for the current PR head:
+   - Push the latest commit first.
+   - Add exactly one top-level PR comment with body `@sourcery-ai review` for that pushed head.
+   - Record the request in the workpad with the PR number and current short SHA.
+   - Wait for the Sourcery review run to complete for that head, not merely for the first Sourcery message.
+   - While waiting, keep polling top-level PR comments, inline review comments, review summaries, and PR checks because Sourcery may publish several comments or reviews in one run.
+   - If the review run does not complete within a bounded wait, document the wait duration and evidence in the workpad; do not invent a clean review result.
+7. After Sourcery completes, sweep every Sourcery comment/review from that run together with all human feedback.
+8. Repeat this check-address-validate-push-request-review-sweep loop until there are no outstanding actionable comments and the latest pushed commit has either received a completed Sourcery review or the review is explicitly documented as unavailable.
 
 ## Blocked-access escape hatch (required behavior)
 
@@ -233,7 +241,7 @@ Use this only when completion is blocked by missing required tools or missing au
     - Check off completed items.
     - Add newly discovered items in the appropriate section.
     - Keep parent/child structure intact as scope evolves.
-    - Update the workpad immediately after each meaningful milestone (for example: reproduction complete, code change landed, validation run, review feedback addressed).
+    - Update the workpad immediately after each meaningful milestone (for example: reproduction complete, code change landed, validation run, review requested, review feedback addressed).
     - Never leave completed work unchecked in the plan.
     - For tickets that started as `Todo` with an attached PR, run the full PR feedback sweep protocol immediately after kickoff and before new feature work.
 5.  Run validation/tests required for the scope.
@@ -257,9 +265,10 @@ Use this only when completion is blocked by missing required tools or missing au
 11. Before moving to `Human Review`, poll PR feedback and checks:
     - Read the PR `Manual QA Plan` comment (when present) and use it to sharpen UI/runtime test coverage for the current change.
     - Run the full PR feedback sweep protocol.
+    - Ensure the latest pushed change has one completed Sourcery review run, requested with `@sourcery-ai review` when needed, before judging the PR ready for a human.
     - Confirm PR checks are passing (green) after the latest changes.
     - Confirm every required ticket-provided validation/test-plan item is explicitly marked complete in the workpad.
-    - Repeat this check-address-verify loop until no outstanding comments remain and checks are fully passing.
+    - Repeat this check-address-verify-review loop until no outstanding comments remain, checks are fully passing, and all Sourcery feedback for the latest completed run has been handled.
     - Re-open and refresh the workpad before state transition so `Plan`, `Acceptance Criteria`, and `Validation` exactly match completed work.
 12. Only then move issue to `Human Review`.
     - Exception: if blocked by missing required non-GitHub tools/auth per the blocked-access escape hatch, move to `Human Review` with the blocker brief and explicit unblock actions.
@@ -294,7 +303,7 @@ Use this only when completion is blocked by missing required tools or missing au
 - Step 1/2 checklist is fully complete and accurately reflected in the single workpad comment.
 - Acceptance criteria and required ticket-provided validation items are complete.
 - Validation/tests are green for the latest commit.
-- PR feedback sweep is complete and no actionable comments remain.
+- PR feedback sweep is complete, a fresh Sourcery review run has completed for the latest pushed change when available, and no actionable comments remain.
 - PR checks are green, branch is pushed, and PR is linked on the issue.
 - Branch is rebased or fast-forwarded onto latest `origin/main` with no merge commits introduced by the agent.
 - Required PR metadata is present (`symphony` label).

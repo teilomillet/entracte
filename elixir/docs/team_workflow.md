@@ -184,6 +184,9 @@ Open `http://127.0.0.1:4000` on the runner machine to watch active work.
   the agent to mirror them into the workpad and execute them.
 - Keep branch history linear. The workflow syncs branches by rebase or fast-forward before handoff
   and before merge; it should not merge `origin/main` into task branches.
+- Before moving an issue to `Human Review`, the agent should request a fresh Sourcery review for the
+  latest pushed PR head when available, wait for that review run to complete, and address or
+  explicitly push back on every actionable Sourcery and human comment.
 - A human should review PRs before moving issues to `Merging`.
 - The runner's dashboard and logs show token totals for the daemon, but spend attribution is by
   runner/Codex account. If per-person chargeback matters, use per-person runners or separate service
