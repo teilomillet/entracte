@@ -20,8 +20,9 @@ This directory contains the current Elixir/OTP implementation of Symphony, based
 4. Sends a workflow prompt to Codex
 5. Keeps Codex working on the issue until the work is done
 
-During app-server sessions, Symphony also serves a client-side `linear_graphql` tool so that repo
-skills can make raw Linear GraphQL calls.
+During app-server sessions, Symphony also serves client-side tools for repo skills:
+`linear_graphql` for raw Linear GraphQL calls and `gitlab_coverage` for normalized GitLab pipeline
+coverage/status reads.
 
 If a claimed issue moves to a terminal state (`Done`, `Closed`, `Cancelled`, or `Duplicate`),
 Symphony stops the active agent for that issue and cleans up matching workspaces. If the issue gets
@@ -33,6 +34,8 @@ the configured pause label, Symphony stops the active agent without treating the
    [Harness engineering](https://openai.com/index/harness-engineering/).
 2. Get a new personal token in Linear via Settings → Security & access → Personal API keys, and
    set it as the `LINEAR_API_KEY` environment variable.
+   If you want agents to inspect GitLab coverage, also set `GITLAB_API_TOKEN` and
+   `GITLAB_PROJECT_ID`.
 3. Copy this directory's `WORKFLOW.md` to your repo.
 4. Optionally copy the `commit`, `push`, `pull`, `land`, and `linear` skills to your repo.
    - The `linear` skill expects Symphony's `linear_graphql` app-server tool for raw Linear GraphQL
@@ -245,6 +248,10 @@ tracker:
   api_key: $LINEAR_API_KEY
   project_slug: $LINEAR_PROJECT_SLUG
   assignee: $LINEAR_ASSIGNEE
+gitlab:
+  endpoint: $GITLAB_API_ENDPOINT
+  api_token: $GITLAB_API_TOKEN
+  project_id: $GITLAB_PROJECT_ID
 workspace:
   root: $SYMPHONY_WORKSPACE_ROOT
 hooks:

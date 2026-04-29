@@ -832,16 +832,22 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     previous_linear_api_key = System.get_env("LINEAR_API_KEY")
     previous_linear_project_slug = System.get_env("LINEAR_PROJECT_SLUG")
     previous_linear_project_slugs = System.get_env("LINEAR_PROJECT_SLUGS")
+    previous_gitlab_api_token = System.get_env("GITLAB_API_TOKEN")
+    previous_gitlab_project_id = System.get_env("GITLAB_PROJECT_ID")
 
     on_exit(fn ->
       restore_env("LINEAR_API_KEY", previous_linear_api_key)
       restore_env("LINEAR_PROJECT_SLUG", previous_linear_project_slug)
       restore_env("LINEAR_PROJECT_SLUGS", previous_linear_project_slugs)
+      restore_env("GITLAB_API_TOKEN", previous_gitlab_api_token)
+      restore_env("GITLAB_PROJECT_ID", previous_gitlab_project_id)
     end)
 
     System.delete_env("LINEAR_API_KEY")
     System.delete_env("LINEAR_PROJECT_SLUG")
     System.delete_env("LINEAR_PROJECT_SLUGS")
+    System.delete_env("GITLAB_API_TOKEN")
+    System.delete_env("GITLAB_PROJECT_ID")
 
     write_workflow_file!(Workflow.workflow_file_path(),
       workspace_root: nil,
@@ -853,7 +859,9 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       codex_read_timeout_ms: nil,
       codex_stall_timeout_ms: nil,
       tracker_api_token: nil,
-      tracker_project_slug: nil
+      tracker_project_slug: nil,
+      gitlab_api_token: nil,
+      gitlab_project_id: nil
     )
 
     config = Config.settings!()
@@ -861,6 +869,9 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert config.tracker.api_key == nil
     assert config.tracker.project_slug == nil
     assert config.tracker.project_slugs == []
+    assert config.gitlab.endpoint == "https://gitlab.com/api/v4"
+    assert config.gitlab.api_token == nil
+    assert config.gitlab.project_id == nil
     assert config.workspace.root == Path.join(System.tmp_dir!(), "symphony_workspaces")
     assert config.worker.max_concurrent_agents_per_host == nil
     assert config.agent.max_concurrent_agents == 10
@@ -1143,27 +1154,36 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     previous_empty_secret_env = System.get_env(empty_secret_env)
     previous_missing_secret_env = System.get_env(missing_secret_env)
     previous_linear_api_key = System.get_env("LINEAR_API_KEY")
+    previous_gitlab_api_token = System.get_env("GITLAB_API_TOKEN")
+    previous_gitlab_project_id = System.get_env("GITLAB_PROJECT_ID")
 
     System.delete_env(missing_workspace_env)
     System.put_env(empty_secret_env, "")
     System.delete_env(missing_secret_env)
     System.put_env("LINEAR_API_KEY", "fallback-linear-token")
+    System.put_env("GITLAB_API_TOKEN", "fallback-gitlab-token")
+    System.put_env("GITLAB_PROJECT_ID", "fallback/group")
 
     on_exit(fn ->
       restore_env(missing_workspace_env, previous_missing_workspace_env)
       restore_env(empty_secret_env, previous_empty_secret_env)
       restore_env(missing_secret_env, previous_missing_secret_env)
       restore_env("LINEAR_API_KEY", previous_linear_api_key)
+      restore_env("GITLAB_API_TOKEN", previous_gitlab_api_token)
+      restore_env("GITLAB_PROJECT_ID", previous_gitlab_project_id)
     end)
 
     assert {:ok, settings} =
              Schema.parse(%{
                tracker: %{api_key: "$#{empty_secret_env}"},
+               gitlab: %{api_token: "$#{empty_secret_env}", project_id: "$GITLAB_PROJECT_ID"},
                workspace: %{root: "$#{missing_workspace_env}"},
                codex: %{approval_policy: %{reject: %{sandbox_approval: true}}}
              })
 
     assert settings.tracker.api_key == nil
+    assert settings.gitlab.api_token == nil
+    assert settings.gitlab.project_id == "fallback/group"
     assert settings.workspace.root == Path.join(System.tmp_dir!(), "symphony_workspaces")
 
     assert settings.codex.approval_policy == %{
@@ -1173,10 +1193,12 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert {:ok, settings} =
              Schema.parse(%{
                tracker: %{api_key: "$#{missing_secret_env}"},
+               gitlab: %{api_token: "$GITLAB_API_TOKEN"},
                workspace: %{root: ""}
              })
 
     assert settings.tracker.api_key == "fallback-linear-token"
+    assert settings.gitlab.api_token == "fallback-gitlab-token"
     assert settings.workspace.root == Path.join(System.tmp_dir!(), "symphony_workspaces")
   end
 

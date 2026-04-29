@@ -108,6 +108,9 @@ defmodule SymphonyElixir.TestSupport do
           workspace_root: Path.join(System.tmp_dir!(), "symphony_workspaces"),
           worker_ssh_hosts: [],
           worker_max_concurrent_agents_per_host: nil,
+          gitlab_endpoint: "https://gitlab.com/api/v4",
+          gitlab_api_token: nil,
+          gitlab_project_id: nil,
           max_concurrent_agents: 10,
           max_turns: 20,
           max_retry_backoff_ms: 300_000,
@@ -150,6 +153,9 @@ defmodule SymphonyElixir.TestSupport do
     workspace_root = Keyword.get(config, :workspace_root)
     worker_ssh_hosts = Keyword.get(config, :worker_ssh_hosts)
     worker_max_concurrent_agents_per_host = Keyword.get(config, :worker_max_concurrent_agents_per_host)
+    gitlab_endpoint = Keyword.get(config, :gitlab_endpoint)
+    gitlab_api_token = Keyword.get(config, :gitlab_api_token)
+    gitlab_project_id = Keyword.get(config, :gitlab_project_id)
     max_concurrent_agents = Keyword.get(config, :max_concurrent_agents)
     max_turns = Keyword.get(config, :max_turns)
     max_retry_backoff_ms = Keyword.get(config, :max_retry_backoff_ms)
@@ -195,6 +201,10 @@ defmodule SymphonyElixir.TestSupport do
         "workspace:",
         "  root: #{yaml_value(workspace_root)}",
         worker_yaml(worker_ssh_hosts, worker_max_concurrent_agents_per_host),
+        "gitlab:",
+        "  endpoint: #{yaml_value(gitlab_endpoint)}",
+        "  api_token: #{yaml_value(gitlab_api_token)}",
+        "  project_id: #{yaml_value(gitlab_project_id)}",
         "agent:",
         "  max_concurrent_agents: #{yaml_value(max_concurrent_agents)}",
         "  max_turns: #{yaml_value(max_turns)}",
