@@ -200,17 +200,27 @@ JSON-RPC stdio protocol. Entr'acte still launches it from the issue workspace:
 agent:
   runner: app_server
 codex:
-  command: /Users/teilomillet/Code/sari/scripts/sari_app_server --backend fake
+  command: /Users/teilomillet/Code/sari/scripts/sari_app_server --preset fake
 ```
 
-For real backends, keep the runner as `app_server` and select the backend in the
-Sari command or environment:
+For real backends, keep the runner as `app_server` and select a Sari runtime
+preset:
 
 ```yaml
 agent:
   runner: app_server
 codex:
-  command: SARI_BACKEND=opencode_http SARI_OPENCODE_BASE_URL=http://127.0.0.1:41888 /Users/teilomillet/Code/sari/scripts/sari_app_server
+  command: SARI_OPENCODE_BASE_URL=http://127.0.0.1:41888 /Users/teilomillet/Code/sari/scripts/sari_app_server --preset opencode_lmstudio
+```
+
+Claude Code can run through Sari the same way as Codex, including Entr'acte
+dynamic tools bridged through Sari's local MCP server:
+
+```yaml
+agent:
+  runner: app_server
+codex:
+  command: /Users/teilomillet/Code/sari/scripts/sari_app_server --preset claude_code
 ```
 
 `headless` remains useful for plain command CLIs, but Sari should use
@@ -305,8 +315,9 @@ codex:
   command: "${CODEX_BIN:-codex} --config 'model=\"gpt-5.5\"' app-server"
 ```
 
-For a headless CLI such as Claude, select the headless runner and provide the command that should
-consume the prompt from stdin:
+For a plain headless CLI, select the headless runner and provide the command that should consume the
+prompt from stdin. This path is not equivalent to Codex app-server and does not expose the dynamic
+tool bridge that Sari provides:
 
 ```yaml
 agent:
