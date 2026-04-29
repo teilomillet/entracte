@@ -125,6 +125,11 @@ mise exec -- mix symphony.tracker_state.install
 
 The Linear adapter only creates missing states; it does not rewrite existing team workflow states.
 
+The default Entr'acte workflow uses Codex `danger-full-access` inside each per-issue workspace. This
+is deliberate: the runner is already explicitly acknowledged as unattended, and agents need Git
+metadata writes for branch creation, commits, pushes, and PR handoff. Use a stricter Codex sandbox
+only for workflows that do not need to publish repository changes.
+
 Install the default tracker issue template for the configured project team or teams:
 
 ```bash
