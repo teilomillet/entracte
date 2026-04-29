@@ -80,6 +80,54 @@ defmodule SymphonyElixir.LinearTemplateInstallerTest do
     refute_received {:created, _variables}
   end
 
+  test "normalizes existing templates when Linear returns templateData as encoded JSON" do
+    parent = self()
+
+    templates = [
+      %{
+        "id" => "template-1",
+        "type" => "issue",
+        "name" => LinearTemplateInstaller.default_template_name(),
+        "description" => "Agent task template",
+        "templateData" => Jason.encode!(%{"description" => "## Goal\nDo the work."}),
+        "team" => %{"id" => "team-1"}
+      }
+    ]
+
+    assert {:ok, [result]} =
+             LinearTemplateInstaller.install(
+               [update_existing: false],
+               deps(parent, templates: templates)
+             )
+
+    assert result.action == :unchanged
+    assert result.template.description == "Agent task template"
+    assert result.template.body == "## Goal\nDo the work."
+  end
+
+  test "does not crash when Linear returns rich templateData without markdown description" do
+    parent = self()
+
+    templates = [
+      %{
+        "id" => "template-1",
+        "type" => "issue",
+        "name" => LinearTemplateInstaller.default_template_name(),
+        "templateData" => Jason.encode!(%{"descriptionData" => %{"type" => "doc", "content" => []}}),
+        "team" => %{"id" => "team-1"}
+      }
+    ]
+
+    assert {:ok, [result]} =
+             LinearTemplateInstaller.install(
+               [update_existing: false],
+               deps(parent, templates: templates)
+             )
+
+    assert result.action == :unchanged
+    assert result.template.body == nil
+  end
+
   test "installs templates for every configured project team" do
     parent = self()
 

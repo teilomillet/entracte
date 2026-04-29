@@ -401,10 +401,21 @@ defmodule SymphonyElixir.LinearTemplateInstaller do
       id: template["id"],
       name: template["name"],
       description: template["description"],
-      body: get_in(template, ["templateData", "description"]),
+      body: template_body(template["templateData"]),
       metadata: %{provider: :linear, raw: template, type: template["type"]}
     }
   end
+
+  defp template_body(%{} = template_data), do: template_data["description"]
+
+  defp template_body(template_data) when is_binary(template_data) do
+    case Jason.decode(template_data) do
+      {:ok, decoded} when is_map(decoded) -> template_body(decoded)
+      _ -> nil
+    end
+  end
+
+  defp template_body(_template_data), do: nil
 
   defp create_input(team_id, template_name) do
     update_input(team_id, template_name)
