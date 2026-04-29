@@ -12,7 +12,7 @@ defmodule SymphonyElixir.Orchestrator do
 
   @continuation_retry_delay_ms 1_000
   @failure_retry_base_ms 10_000
-  @recent_codex_activity_limit 10
+  @recent_codex_activity_limit 100
   # Slightly above the dashboard render interval so "checking now…" can render.
   @poll_transition_render_delay_ms 20
   @empty_codex_totals %{

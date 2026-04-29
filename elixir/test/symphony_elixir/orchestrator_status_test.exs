@@ -77,7 +77,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
        }}
     )
 
-    Enum.each(1..12, fn index ->
+    Enum.each(1..105, fn index ->
       send(
         pid,
         {:codex_worker_update, issue_id,
@@ -94,17 +94,17 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     assert snapshot_entry.issue_id == issue_id
     assert snapshot_entry.session_id == "thread-live-turn-live"
     assert snapshot_entry.turn_count == 1
-    assert snapshot_entry.last_codex_timestamp == DateTime.add(now, 12, :second)
+    assert snapshot_entry.last_codex_timestamp == DateTime.add(now, 105, :second)
 
     assert snapshot_entry.last_codex_message == %{
              event: :notification,
-             message: %{method: "event-12"},
-             timestamp: DateTime.add(now, 12, :second)
+             message: %{method: "event-105"},
+             timestamp: DateTime.add(now, 105, :second)
            }
 
-    assert length(snapshot_entry.codex_recent_events) == 10
-    assert hd(snapshot_entry.codex_recent_events).message == %{method: "event-12"}
-    assert List.last(snapshot_entry.codex_recent_events).message == %{method: "event-3"}
+    assert length(snapshot_entry.codex_recent_events) == 100
+    assert hd(snapshot_entry.codex_recent_events).message == %{method: "event-105"}
+    assert List.last(snapshot_entry.codex_recent_events).message == %{method: "event-6"}
   end
 
   test "orchestrator snapshot tracks codex thread totals and app-server pid" do
@@ -1423,7 +1423,17 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     failed = %{
       event: :tool_call_failed,
       message: %{
-        payload: %{"method" => "item/tool/call", "params" => %{"tool" => "linear_graphql"}}
+        payload: %{"method" => "item/tool/call", "params" => %{"tool" => "linear_graphql"}},
+        result: %{
+          "success" => false,
+          "output" =>
+            Jason.encode!(%{
+              "error" => %{
+                "message" => "Linear GraphQL request failed with HTTP 400.",
+                "detail" => "Cannot query field \"resolved\" on type \"Comment\"."
+              }
+            })
+        }
       }
     }
 
@@ -1439,6 +1449,9 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     assert StatusDashboard.humanize_codex_message(failed) =~
              "dynamic tool call failed (linear_graphql)"
+
+    assert StatusDashboard.humanize_codex_message(failed) =~
+             "Cannot query field"
 
     assert StatusDashboard.humanize_codex_message(unsupported) =~
              "unsupported dynamic tool call rejected (unknown_tool)"

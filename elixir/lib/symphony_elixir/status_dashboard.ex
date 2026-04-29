@@ -1179,8 +1179,14 @@ defmodule SymphonyElixir.StatusDashboard do
   defp humanize_codex_event(:tool_call_completed, _message, payload),
     do: humanize_dynamic_tool_event("dynamic tool call completed", payload)
 
-  defp humanize_codex_event(:tool_call_failed, _message, payload),
-    do: humanize_dynamic_tool_event("dynamic tool call failed", payload)
+  defp humanize_codex_event(:tool_call_failed, message, payload) do
+    base = humanize_dynamic_tool_event("dynamic tool call failed", payload)
+
+    case dynamic_tool_error_summary(message) do
+      nil -> base
+      summary -> "#{base}: #{summary}"
+    end
+  end
 
   defp humanize_codex_event(:unsupported_tool_call, _message, payload),
     do: humanize_dynamic_tool_event("unsupported dynamic tool call rejected", payload)
@@ -1464,6 +1470,55 @@ defmodule SymphonyElixir.StatusDashboard do
         base
     end
   end
+
+  defp dynamic_tool_error_summary(message) do
+    message
+    |> dynamic_tool_output()
+    |> dynamic_tool_error_summary_from_output()
+  end
+
+  defp dynamic_tool_output(message) when is_map(message) do
+    map_path(message, ["result", "output"]) ||
+      map_path(message, [:result, :output])
+  end
+
+  defp dynamic_tool_output(_message), do: nil
+
+  defp dynamic_tool_error_summary_from_output(output) when is_binary(output) do
+    case Jason.decode(output) do
+      {:ok, decoded} -> dynamic_tool_error_summary_from_decoded(decoded) || inline_text(output)
+      {:error, _reason} -> inline_text(output)
+    end
+  end
+
+  defp dynamic_tool_error_summary_from_output(_output), do: nil
+
+  defp dynamic_tool_error_summary_from_decoded(decoded) when is_map(decoded) do
+    error = map_value(decoded, ["error", :error])
+    message = map_value(error || %{}, ["message", :message])
+    detail = map_value(error || %{}, ["detail", :detail]) || first_graphql_error_message(error)
+
+    [message, detail]
+    |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
+    |> Enum.uniq()
+    |> Enum.join(" ")
+    |> case do
+      "" -> nil
+      summary -> summary
+    end
+  end
+
+  defp dynamic_tool_error_summary_from_decoded(_decoded), do: nil
+
+  defp first_graphql_error_message(error) when is_map(error) do
+    case map_path(error, ["body", "errors"]) || map_path(error, [:body, :errors]) do
+      [%{"message" => message} | _] when is_binary(message) -> message
+      [%{message: message} | _] when is_binary(message) -> message
+      _ -> nil
+    end
+  end
+
+  defp first_graphql_error_message(_error), do: nil
 
   defp dynamic_tool_name(payload) do
     map_path(payload, ["params", "tool"]) ||

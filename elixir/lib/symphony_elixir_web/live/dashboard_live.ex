@@ -260,6 +260,26 @@ defmodule SymphonyElixirWeb.DashboardLive do
                     </li>
                   </ol>
                 </details>
+
+                <details class="console-panel">
+                  <summary>
+                    Console
+                    <span class="diagnostics-count">
+                      <%= length(entry.recent_events) %>
+                    </span>
+                  </summary>
+                  <div class="console-scroll" role="log" aria-label={"#{entry.issue_identifier} event console"}>
+                    <ol class="console-list">
+                      <li :for={event <- console_events(entry.recent_events)} class={console_event_class(event)}>
+                        <span class="console-time numeric"><%= format_time(event.at) %></span>
+                        <span class="console-event"><%= event.event || "event" %></span>
+                        <span class="console-message">
+                          <%= event.message || to_string(event.event || "n/a") %>
+                        </span>
+                      </li>
+                    </ol>
+                  </div>
+                </details>
               </article>
             </div>
           <% end %>
@@ -600,6 +620,23 @@ defmodule SymphonyElixirWeb.DashboardLive do
   end
 
   defp diagnostic_count(_diagnostics), do: "0"
+
+  defp console_events(events) when is_list(events), do: Enum.reverse(events)
+  defp console_events(_events), do: []
+
+  defp console_event_class(%{event: event, message: message}) do
+    base = "console-item"
+    text = "#{event} #{message}" |> String.downcase()
+
+    cond do
+      String.contains?(text, ["failed", "error", "blocked", "approval_required"]) -> "#{base} console-item-danger"
+      String.contains?(text, ["completed", "success", "human review"]) -> "#{base} console-item-success"
+      String.contains?(text, ["started", "requested", "running", "inprogress"]) -> "#{base} console-item-active"
+      true -> base
+    end
+  end
+
+  defp console_event_class(_event), do: "console-item"
 
   defp format_time(nil), do: "n/a"
 

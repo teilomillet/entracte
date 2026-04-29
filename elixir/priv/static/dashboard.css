@@ -680,12 +680,14 @@ pre,
 }
 
 .diagnostics-panel,
+.console-panel,
 .raw-activity-panel {
   border-top: 1px solid var(--line);
   padding-top: 0.72rem;
 }
 
 .diagnostics-panel summary,
+.console-panel summary,
 .raw-activity-panel summary {
   cursor: pointer;
   color: var(--muted);
@@ -719,6 +721,62 @@ pre,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.console-panel {
+  display: block;
+}
+
+.console-scroll {
+  max-height: 22rem;
+  margin-top: 0.65rem;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0f1412;
+}
+
+.console-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0.35rem 0;
+  list-style: none;
+}
+
+.console-item {
+  display: grid;
+  grid-template-columns: 5.3rem 8.8rem minmax(0, 1fr);
+  gap: 0.7rem;
+  padding: 0.28rem 0.7rem;
+  color: #d8e5df;
+  font-family: "Sohne Mono", "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", monospace;
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
+.console-item-danger {
+  color: #ffd5d1;
+  background: rgba(183, 42, 42, 0.18);
+}
+
+.console-item-success {
+  color: #c7f2df;
+}
+
+.console-item-active {
+  color: #d6e8ff;
+}
+
+.console-time,
+.console-event {
+  color: #8ea39a;
+  white-space: nowrap;
+}
+
+.console-message {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .compact-empty {
@@ -949,7 +1007,8 @@ pre,
     justify-content: flex-start;
   }
 
-  .diagnostic-item {
+  .diagnostic-item,
+  .console-item {
     grid-template-columns: 1fr;
     gap: 0.2rem;
   }

@@ -273,13 +273,31 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
       DynamicTool.execute(
         "linear_graphql",
         %{"query" => "query Viewer { viewer { id } }"},
-        linear_client: fn _query, _variables, _opts -> {:error, {:linear_api_status, 503}} end
+        linear_client: fn _query, _variables, _opts ->
+          {:error, {:linear_api_status, 503, %{"errors" => [%{"message" => "schema mismatch"}]}}}
+        end
       )
 
     assert Jason.decode!(status_error["output"]) == %{
              "error" => %{
+               "body" => %{"errors" => [%{"message" => "schema mismatch"}]},
+               "detail" => "schema mismatch",
                "message" => "Linear GraphQL request failed with HTTP 503.",
                "status" => 503
+             }
+           }
+
+    legacy_status_error =
+      DynamicTool.execute(
+        "linear_graphql",
+        %{"query" => "query Viewer { viewer { id } }"},
+        linear_client: fn _query, _variables, _opts -> {:error, {:linear_api_status, 502}} end
+      )
+
+    assert Jason.decode!(legacy_status_error["output"]) == %{
+             "error" => %{
+               "message" => "Linear GraphQL request failed with HTTP 502.",
+               "status" => 502
              }
            }
 

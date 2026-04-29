@@ -1103,6 +1103,7 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert html =~ "Copy ID"
     assert html =~ "Codex update"
     assert html =~ "Active issue focus, milestones, and diagnostics."
+    assert html =~ "Console"
     assert html =~ "Recent event stream"
     assert html =~ "Show raw events"
     refute html =~ "data-runtime-clock="

@@ -8,6 +8,9 @@ defmodule SymphonyElixir.Codex.DynamicTool do
   @linear_graphql_tool "linear_graphql"
   @linear_graphql_description """
   Execute a raw GraphQL query or mutation against Linear using Symphony's configured auth.
+
+  Linear's Comment type exposes `resolvedAt` for resolved comments; do not query
+  a non-existent `resolved` field.
   """
   @linear_graphql_input_schema %{
     "type" => "object",
@@ -304,6 +307,18 @@ defmodule SymphonyElixir.Codex.DynamicTool do
     }
   end
 
+  defp tool_error_payload({:linear_api_status, status, body}) do
+    %{
+      "error" =>
+        %{
+          "message" => "Linear GraphQL request failed with HTTP #{status}.",
+          "status" => status,
+          "body" => body
+        }
+        |> maybe_put_graphql_error_detail(body)
+    }
+  end
+
   defp tool_error_payload({:linear_api_request, reason}) do
     %{
       "error" => %{
@@ -321,6 +336,16 @@ defmodule SymphonyElixir.Codex.DynamicTool do
       }
     }
   end
+
+  defp maybe_put_graphql_error_detail(error, %{"errors" => [%{"message" => message} | _]}) when is_binary(message) do
+    Map.put(error, "detail", message)
+  end
+
+  defp maybe_put_graphql_error_detail(error, %{errors: [%{message: message} | _]}) when is_binary(message) do
+    Map.put(error, "detail", message)
+  end
+
+  defp maybe_put_graphql_error_detail(error, _body), do: error
 
   defp gitlab_tool_error_payload(:missing_gitlab_api_token) do
     %{
