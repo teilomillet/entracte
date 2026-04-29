@@ -1087,6 +1087,12 @@ Subprocess launch parameters:
 
 - Runner selection: `agent.runner`
 - App-server command: `codex.command`
+
+Compatibility note: `app_server` is named after the existing Codex integration,
+but the selected command MAY be a backend-neutral facade such as Sari if it
+speaks the same bounded JSON-RPC stdio behavior consumed by Entr'acte. In that
+case, `codex.command` is the compatibility command slot, while backend choice
+belongs to the facade configuration.
 - Headless command: `headless.command`
 - Invocation: `bash -lc <command for selected runner>`
 - Working directory: workspace path

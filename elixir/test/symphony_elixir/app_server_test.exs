@@ -183,6 +183,126 @@ defmodule SymphonyElixir.AppServerTest do
     end
   end
 
+  test "app server accepts a Sari-compatible command through codex.command" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-sari-app-server-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-SARI")
+      sari_binary = Path.join(test_root, "fake-sari-app-server")
+      trace_file = Path.join(test_root, "sari-app-server.trace")
+
+      File.mkdir_p!(workspace)
+
+      File.write!(sari_binary, """
+      #!/bin/sh
+      trace_file=#{trace_file}
+      count=0
+
+      while IFS= read -r line; do
+        count=$((count + 1))
+        printf 'JSON:%s\n' "$line" >> "$trace_file"
+
+        case "$count" in
+          1)
+            printf '%s\n' '{"id":1,"result":{"serverInfo":{"name":"sari","version":"0.1.0"},"capabilities":{"backend":"fake","transport":"in_memory"}}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\n' '{"id":2,"result":{"thread":{"id":"sari-thread-1","status":"ready","metadata":{"backend":"fake"}},"cwd":"#{workspace}","model":"sari","modelProvider":"fake"}}'
+            ;;
+          4)
+            printf '%s\n' '{"id":3,"result":{"turn":{"id":"sari-turn-1","status":"running","items":[]}}}'
+            printf '%s\n' '{"method":"turn/started","params":{"threadId":"sari-thread-1","turn":{"id":"sari-turn-1","status":"running","items":[]},"payload":{"input":[{"type":"text","text":"hello"}]}}}'
+            printf '%s\n' '{"method":"item/agentMessage/delta","params":{"threadId":"sari-thread-1","turnId":"sari-turn-1","itemId":"assistant-message","delta":"sari via entracte"}}'
+            printf '%s\n' '{"method":"thread/tokenUsage/updated","usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5},"params":{"threadId":"sari-thread-1","usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5}}}'
+            printf '%s\n' '{"method":"turn/completed","params":{"threadId":"sari-thread-1","turn":{"id":"sari-turn-1","status":"completed","items":[]},"result":{"result":"ok"}}}'
+            exit 0
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(sari_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        agent_runner: "app_server",
+        codex_command: "#{sari_binary} --backend fake",
+        codex_approval_policy: "never"
+      )
+
+      issue = %Issue{
+        id: "issue-sari-app-server",
+        identifier: "MT-SARI",
+        title: "Validate Sari app-server compatibility",
+        description: "Ensure Entr'acte can consume Sari through the app-server command slot",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-SARI",
+        labels: ["runtime"]
+      }
+
+      parent = self()
+      ref = make_ref()
+      on_message = fn message -> send(parent, {ref, message}) end
+
+      assert {:ok, result} = AppServer.run(workspace, "hello", issue, on_message: on_message)
+
+      assert result.result == :turn_completed
+      assert result.thread_id == "sari-thread-1"
+      assert result.turn_id == "sari-turn-1"
+
+      assert_receive {^ref, %{event: :session_started, thread_id: "sari-thread-1", turn_id: "sari-turn-1"}}
+
+      assert_receive {^ref,
+                      %{
+                        event: :notification,
+                        payload: %{
+                          "method" => "thread/tokenUsage/updated",
+                          "usage" => %{"input_tokens" => 2, "output_tokens" => 3, "total_tokens" => 5}
+                        },
+                        usage: %{"input_tokens" => 2, "output_tokens" => 3, "total_tokens" => 5}
+                      }}
+
+      assert_receive {^ref, %{event: :turn_completed}}
+
+      trace = File.read!(trace_file)
+      lines = String.split(trace, "\n", trim: true)
+      assert {:ok, canonical_workspace} = SymphonyElixir.PathSafety.canonicalize(workspace)
+
+      assert Enum.any?(lines, fn line ->
+               if String.starts_with?(line, "JSON:") do
+                 payload = line |> String.trim_leading("JSON:") |> Jason.decode!()
+                 payload["method"] == "initialize"
+               else
+                 false
+               end
+             end)
+
+      assert Enum.any?(lines, fn line ->
+               if String.starts_with?(line, "JSON:") do
+                 payload = line |> String.trim_leading("JSON:") |> Jason.decode!()
+
+                 payload["method"] == "thread/start" &&
+                   get_in(payload, ["params", "cwd"]) == canonical_workspace &&
+                   is_list(get_in(payload, ["params", "dynamicTools"]))
+               else
+                 false
+               end
+             end)
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "app server marks request-for-input events as a hard failure" do
     test_root =
       Path.join(

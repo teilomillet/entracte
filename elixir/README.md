@@ -191,6 +191,31 @@ Notes:
   Symphony validation.
 - `agent.max_turns` caps how many back-to-back agent turns Symphony will run in a single agent
   invocation when a turn completes normally but the issue is still in an active state. Default: `20`.
+
+A backend-neutral app-server facade such as Sari can use the same `app_server`
+runner by replacing `codex.command` with a command that speaks the compatible
+JSON-RPC stdio protocol. Entr'acte still launches it from the issue workspace:
+
+```yaml
+agent:
+  runner: app_server
+codex:
+  command: /Users/teilomillet/Code/sari/scripts/sari_app_server --backend fake
+```
+
+For real backends, keep the runner as `app_server` and select the backend in the
+Sari command or environment:
+
+```yaml
+agent:
+  runner: app_server
+codex:
+  command: SARI_BACKEND=opencode_http SARI_OPENCODE_BASE_URL=http://127.0.0.1:41888 /Users/teilomillet/Code/sari/scripts/sari_app_server
+```
+
+`headless` remains useful for plain command CLIs, but Sari should use
+`app_server` when the backend needs streaming turn events, token usage,
+approvals, or dynamic tool calls.
 - If the Markdown body is blank, Symphony uses a default prompt template that includes the issue
   identifier, title, and body.
 - Use `hooks.after_create` to bootstrap a fresh workspace. For a Git-backed repo, you can run
