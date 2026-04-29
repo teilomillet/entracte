@@ -23,12 +23,46 @@ defmodule SymphonyElixir.AgentRuntime do
     end
   end
 
-  @spec run_turn(session(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  @spec run_turn(session() | map(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def run_turn(session, prompt, issue, opts \\ []) do
-    case session do
-      %{agent_runtime: :headless} -> Headless.run_turn(session, prompt, issue, opts)
-      _ -> AppServer.run_turn(session, prompt, issue, opts)
-    end
+    do_run_turn(session, prompt, issue, opts)
+  end
+
+  defp do_run_turn(
+         %{
+           agent_runtime: :app_server,
+           approval_policy: _approval_policy,
+           auto_approve_requests: _auto_approve_requests,
+           metadata: metadata,
+           port: port,
+           thread_id: thread_id,
+           turn_sandbox_policy: _turn_sandbox_policy,
+           workspace: workspace
+         } = session,
+         prompt,
+         issue,
+         opts
+       )
+       when is_port(port) and is_map(metadata) and is_binary(thread_id) and is_binary(workspace) do
+    session
+    |> Map.delete(:agent_runtime)
+    |> AppServer.run_turn(prompt, issue, opts)
+  end
+
+  defp do_run_turn(%{agent_runtime: :app_server}, _prompt, _issue, _opts) do
+    {:error, :invalid_app_server_session}
+  end
+
+  defp do_run_turn(%{agent_runtime: :headless} = session, prompt, issue, opts) do
+    Headless.run_turn(session, prompt, issue, opts)
+  end
+
+  defp do_run_turn(%{agent_runtime: runtime}, _prompt, _issue, _opts) do
+    {:error, {:unsupported_agent_runtime, runtime}}
+  end
+
+  defp do_run_turn(_session, _prompt, _issue, _opts) do
+    {:error, :missing_agent_runtime}
   end
 
   @spec stop_session(session()) :: :ok
