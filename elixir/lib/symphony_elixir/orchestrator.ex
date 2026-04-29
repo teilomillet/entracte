@@ -748,6 +748,7 @@ defmodule SymphonyElixir.Orchestrator do
             last_codex_timestamp: nil,
             last_codex_event: nil,
             codex_recent_events: [],
+            agent_runtime_pid: nil,
             codex_app_server_pid: nil,
             codex_input_tokens: 0,
             codex_output_tokens: 0,
@@ -1150,6 +1151,7 @@ defmodule SymphonyElixir.Orchestrator do
           worker_host: Map.get(metadata, :worker_host),
           workspace_path: Map.get(metadata, :workspace_path),
           session_id: metadata.session_id,
+          agent_runtime_pid: Map.get(metadata, :agent_runtime_pid),
           codex_app_server_pid: metadata.codex_app_server_pid,
           codex_input_tokens: metadata.codex_input_tokens,
           codex_output_tokens: metadata.codex_output_tokens,
@@ -1212,6 +1214,7 @@ defmodule SymphonyElixir.Orchestrator do
     codex_input_tokens = Map.get(running_entry, :codex_input_tokens, 0)
     codex_output_tokens = Map.get(running_entry, :codex_output_tokens, 0)
     codex_total_tokens = Map.get(running_entry, :codex_total_tokens, 0)
+    agent_runtime_pid = Map.get(running_entry, :agent_runtime_pid)
     codex_app_server_pid = Map.get(running_entry, :codex_app_server_pid)
     last_reported_input = Map.get(running_entry, :codex_last_reported_input_tokens, 0)
     last_reported_output = Map.get(running_entry, :codex_last_reported_output_tokens, 0)
@@ -1226,6 +1229,7 @@ defmodule SymphonyElixir.Orchestrator do
         session_id: session_id_for_update(running_entry.session_id, update),
         last_codex_event: event,
         codex_recent_events: update_recent_codex_events(running_entry, summary),
+        agent_runtime_pid: agent_runtime_pid_for_update(agent_runtime_pid, update),
         codex_app_server_pid: codex_app_server_pid_for_update(codex_app_server_pid, update),
         codex_input_tokens: codex_input_tokens + token_delta.input_tokens,
         codex_output_tokens: codex_output_tokens + token_delta.output_tokens,
@@ -1251,6 +1255,12 @@ defmodule SymphonyElixir.Orchestrator do
     do: to_string(pid)
 
   defp codex_app_server_pid_for_update(existing, _update), do: existing
+
+  defp agent_runtime_pid_for_update(existing, %{agent_runtime_pid: pid}),
+    do: codex_app_server_pid_for_update(existing, %{codex_app_server_pid: pid})
+
+  defp agent_runtime_pid_for_update(existing, update),
+    do: codex_app_server_pid_for_update(existing, update)
 
   defp session_id_for_update(_existing, %{session_id: session_id}) when is_binary(session_id),
     do: session_id

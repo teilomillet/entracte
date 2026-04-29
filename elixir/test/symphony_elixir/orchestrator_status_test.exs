@@ -183,12 +183,14 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
            }
          },
          timestamp: now,
+         agent_runtime_pid: "4242",
          codex_app_server_pid: "4242"
        }}
     )
 
     snapshot = GenServer.call(pid, :snapshot)
     assert %{running: [snapshot_entry]} = snapshot
+    assert snapshot_entry.agent_runtime_pid == "4242"
     assert snapshot_entry.codex_app_server_pid == "4242"
     assert snapshot_entry.codex_input_tokens == 12
     assert snapshot_entry.codex_output_tokens == 4

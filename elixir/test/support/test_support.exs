@@ -7,6 +7,7 @@ defmodule SymphonyElixir.TestSupport do
       import ExUnit.CaptureLog
 
       alias SymphonyElixir.AgentRunner
+      alias SymphonyElixir.AgentRuntime
       alias SymphonyElixir.CLI
       alias SymphonyElixir.Codex.AppServer
       alias SymphonyElixir.Config
@@ -111,10 +112,13 @@ defmodule SymphonyElixir.TestSupport do
           gitlab_endpoint: "https://gitlab.com/api/v4",
           gitlab_api_token: nil,
           gitlab_project_id: nil,
+          agent_runner: "app_server",
           max_concurrent_agents: 10,
           max_turns: 20,
           max_retry_backoff_ms: 300_000,
           max_concurrent_agents_by_state: %{},
+          headless_command: nil,
+          headless_timeout_ms: 3_600_000,
           codex_command: "codex app-server",
           codex_approval_policy: %{reject: %{sandbox_approval: true, rules: true, mcp_elicitations: true}},
           codex_thread_sandbox: "workspace-write",
@@ -156,10 +160,13 @@ defmodule SymphonyElixir.TestSupport do
     gitlab_endpoint = Keyword.get(config, :gitlab_endpoint)
     gitlab_api_token = Keyword.get(config, :gitlab_api_token)
     gitlab_project_id = Keyword.get(config, :gitlab_project_id)
+    agent_runner = Keyword.get(config, :agent_runner)
     max_concurrent_agents = Keyword.get(config, :max_concurrent_agents)
     max_turns = Keyword.get(config, :max_turns)
     max_retry_backoff_ms = Keyword.get(config, :max_retry_backoff_ms)
     max_concurrent_agents_by_state = Keyword.get(config, :max_concurrent_agents_by_state)
+    headless_command = Keyword.get(config, :headless_command)
+    headless_timeout_ms = Keyword.get(config, :headless_timeout_ms)
     codex_command = Keyword.get(config, :codex_command)
     codex_approval_policy = Keyword.get(config, :codex_approval_policy)
     codex_thread_sandbox = Keyword.get(config, :codex_thread_sandbox)
@@ -206,10 +213,14 @@ defmodule SymphonyElixir.TestSupport do
         "  api_token: #{yaml_value(gitlab_api_token)}",
         "  project_id: #{yaml_value(gitlab_project_id)}",
         "agent:",
+        "  runner: #{yaml_value(agent_runner)}",
         "  max_concurrent_agents: #{yaml_value(max_concurrent_agents)}",
         "  max_turns: #{yaml_value(max_turns)}",
         "  max_retry_backoff_ms: #{yaml_value(max_retry_backoff_ms)}",
         "  max_concurrent_agents_by_state: #{yaml_value(max_concurrent_agents_by_state)}",
+        "headless:",
+        "  command: #{yaml_value(headless_command)}",
+        "  timeout_ms: #{yaml_value(headless_timeout_ms)}",
         "codex:",
         "  command: #{yaml_value(codex_command)}",
         "  approval_policy: #{yaml_value(codex_approval_policy)}",

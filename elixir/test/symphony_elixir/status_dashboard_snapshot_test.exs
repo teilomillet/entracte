@@ -59,6 +59,7 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
            running_entry(%{
              identifier: "MT-102",
              session_id: "thread-abcdef1234567890",
+             agent_runtime_pid: "5252",
              codex_app_server_pid: "5252",
              codex_total_tokens: 89_200,
              runtime_seconds: 412,
