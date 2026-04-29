@@ -1178,7 +1178,7 @@ Unsupported dynamic tool calls:
 Optional client-side tool extension:
 
 - An implementation MAY expose a limited set of client-side tools to the app-server session.
-- Current standardized optional tool: `linear_graphql`.
+- Current standardized optional tools: `linear_graphql`, `gitlab_coverage`.
 - If implemented, supported tools SHOULD be advertised to the app-server session during startup
   using the protocol mechanism supported by the targeted Codex app-server version.
 - Unsupported tool names SHOULD still return a failure result using the targeted protocol and
@@ -1216,6 +1216,38 @@ Optional client-side tool extension:
   - invalid input, missing auth, or transport failure -> `success=false` with an error payload
 - Return the GraphQL response or error payload as structured tool output that the model can inspect
   in-session.
+
+`gitlab_coverage` extension contract:
+
+- Purpose: retrieve normalized GitLab CI pipeline coverage and status using Symphony's configured
+  GitLab auth for the current session.
+- Availability: meaningful when `gitlab.api_token` is configured and a GitLab project is available
+  either from `gitlab.project_id` or the tool input.
+- Preferred input shape:
+
+  ```json
+  {
+    "project_id": "optional positive numeric ID or namespace/project path",
+    "pipeline_id": "optional pipeline ID",
+    "ref": "optional branch or tag ref for latest pipeline lookup"
+  }
+  ```
+
+- `project_id` is OPTIONAL when `gitlab.project_id` is configured.
+- `pipeline_id` and `ref` are mutually exclusive. When `pipeline_id` is omitted, the tool queries
+  GitLab's latest pipeline endpoint, optionally scoped by `ref`.
+- Implementations SHOULD use GitLab's REST pipeline endpoints for a single pipeline or latest
+  pipeline lookup, preserving GitLab's URL-encoding requirements for namespace/project paths.
+- Reuse configured GitLab endpoint and auth from the active Symphony workflow/runtime config; do not
+  require the coding agent to read raw tokens from disk.
+- Tool result semantics:
+  - HTTP 200 with a pipeline response -> `success=true` with a compact normalized payload containing
+    `project_id`, `pipeline_id`, `pipeline_iid`, `status`, `ref`, `sha`, `coverage`, `source`,
+    `web_url`, `created_at`, and `updated_at`.
+  - Missing auth/project, invalid arguments, non-200 responses, transport failures, and unexpected
+    response shapes -> `success=false` with a structured failure payload.
+- Return the normalized response or error payload as structured tool output that the model can
+  inspect in-session.
 
 User-input-required policy:
 
@@ -2189,6 +2221,13 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`. Bulle
   - top-level GraphQL `errors` produce `success=false` while preserving the GraphQL body
   - invalid arguments, missing auth, and transport failures return structured failure payloads
   - unsupported tool names still fail without stalling the session
+- If the `gitlab_coverage` client-side tool extension is implemented:
+  - the tool is advertised to the session
+  - valid `project_id` / `pipeline_id` / `ref` inputs execute against configured GitLab auth
+  - successful GitLab pipeline responses produce normalized coverage/status payloads
+  - invalid arguments, missing auth/project, non-200 responses, and transport failures return
+    structured failure payloads
+  - unsupported tool names still fail without stalling the session
 
 ### 17.6 Observability
 
@@ -2259,6 +2298,8 @@ Use the same validation profiles as Section 17:
   exposes the baseline endpoints/error semantics in Section 13.7 if shipped.
 - `linear_graphql` client-side tool extension exposes raw Linear GraphQL access through the
   app-server session using configured Symphony auth.
+- `gitlab_coverage` client-side tool extension exposes normalized GitLab pipeline coverage/status
+  reads through the app-server session using configured Symphony auth.
 - TODO: Persist retry queue and session metadata across process restarts.
 - TODO: Make observability settings configurable in workflow front matter without prescribing UI
   implementation details.

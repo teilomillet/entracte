@@ -31,6 +31,10 @@ polling:
   interval_ms: 5000
 workspace:
   root: $SYMPHONY_WORKSPACE_ROOT
+gitlab:
+  endpoint: $GITLAB_API_ENDPOINT
+  api_token: $GITLAB_API_TOKEN
+  project_id: $GITLAB_PROJECT_ID
 hooks:
   after_create: |
     : "${SOURCE_REPO_URL:?Set SOURCE_REPO_URL to the repository URL this runner should clone}"

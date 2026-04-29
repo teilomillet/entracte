@@ -3,23 +3,43 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
 
   alias SymphonyElixir.Codex.DynamicTool
 
-  test "tool_specs advertises the linear_graphql input contract" do
-    assert [
-             %{
-               "description" => description,
-               "inputSchema" => %{
-                 "properties" => %{
-                   "query" => _,
-                   "variables" => _
-                 },
-                 "required" => ["query"],
-                 "type" => "object"
-               },
-               "name" => "linear_graphql"
-             }
-           ] = DynamicTool.tool_specs()
+  test "tool_specs advertises the supported dynamic tool contracts" do
+    specs = DynamicTool.tool_specs()
 
-    assert description =~ "Linear"
+    assert Enum.map(specs, & &1["name"]) == ["linear_graphql", "gitlab_coverage"]
+
+    linear_spec = Enum.find(specs, &(&1["name"] == "linear_graphql"))
+
+    assert %{
+             "description" => linear_description,
+             "inputSchema" => %{
+               "properties" => %{
+                 "query" => _,
+                 "variables" => _
+               },
+               "required" => ["query"],
+               "type" => "object"
+             }
+           } = linear_spec
+
+    assert linear_description =~ "Linear"
+
+    gitlab_spec = Enum.find(specs, &(&1["name"] == "gitlab_coverage"))
+
+    assert %{
+             "description" => gitlab_description,
+             "inputSchema" => %{
+               "additionalProperties" => false,
+               "properties" => %{
+                 "project_id" => _,
+                 "pipeline_id" => _,
+                 "ref" => _
+               },
+               "type" => "object"
+             }
+           } = gitlab_spec
+
+    assert gitlab_description =~ "GitLab"
   end
 
   test "unsupported tools return a failure payload with the supported tool list" do
@@ -30,7 +50,7 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
     assert Jason.decode!(response["output"]) == %{
              "error" => %{
                "message" => ~s(Unsupported dynamic tool: "not_a_real_tool".),
-               "supportedTools" => ["linear_graphql"]
+               "supportedTools" => ["linear_graphql", "gitlab_coverage"]
              }
            }
 
@@ -306,5 +326,139 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
 
     assert response["success"] == true
     assert response["output"] == ":ok"
+  end
+
+  test "gitlab_coverage returns successful coverage responses as tool text" do
+    test_pid = self()
+
+    response =
+      DynamicTool.execute(
+        "gitlab_coverage",
+        %{"project_id" => "group/project", "pipeline_id" => "123"},
+        gitlab_client: fn params, opts ->
+          send(test_pid, {:gitlab_client_called, params, opts})
+
+          {:ok,
+           %{
+             "pipeline_id" => 123,
+             "status" => "success",
+             "coverage" => 91.7
+           }}
+        end
+      )
+
+    assert_received {:gitlab_client_called, %{"project_id" => "group/project", "pipeline_id" => 123}, []}
+
+    assert response["success"] == true
+
+    assert Jason.decode!(response["output"]) == %{
+             "coverage" => 91.7,
+             "pipeline_id" => 123,
+             "status" => "success"
+           }
+  end
+
+  test "gitlab_coverage validates arguments before calling the client" do
+    bad_pipeline =
+      DynamicTool.execute(
+        "gitlab_coverage",
+        %{"pipeline_id" => "not-a-number"},
+        gitlab_client: fn _params, _opts -> flunk("gitlab client should not be called") end
+      )
+
+    assert bad_pipeline["success"] == false
+
+    assert Jason.decode!(bad_pipeline["output"]) == %{
+             "error" => %{
+               "message" => "`gitlab_coverage.pipeline_id` must be a positive integer when provided."
+             }
+           }
+
+    ambiguous =
+      DynamicTool.execute(
+        "gitlab_coverage",
+        %{"pipeline_id" => 123, "ref" => "main"},
+        gitlab_client: fn _params, _opts -> flunk("gitlab client should not be called") end
+      )
+
+    assert Jason.decode!(ambiguous["output"]) == %{
+             "error" => %{
+               "message" => "`gitlab_coverage` accepts either `pipeline_id` or `ref`, not both."
+             }
+           }
+
+    bad_project =
+      DynamicTool.execute(
+        "gitlab_coverage",
+        %{"project_id" => 0},
+        gitlab_client: fn _params, _opts -> flunk("gitlab client should not be called") end
+      )
+
+    assert bad_project["success"] == false
+
+    assert Jason.decode!(bad_project["output"]) == %{
+             "error" => %{
+               "message" => "`gitlab_coverage.project_id` must be a positive integer or non-empty string when provided."
+             }
+           }
+  end
+
+  test "gitlab_coverage formats expected client failures" do
+    missing_token =
+      DynamicTool.execute(
+        "gitlab_coverage",
+        %{},
+        gitlab_client: fn _params, _opts -> {:error, :missing_gitlab_api_token} end
+      )
+
+    assert missing_token["success"] == false
+
+    assert Jason.decode!(missing_token["output"]) == %{
+             "error" => %{
+               "message" => "Symphony is missing GitLab auth. Set `gitlab.api_token` in `WORKFLOW.md` or export `GITLAB_API_TOKEN`."
+             }
+           }
+
+    missing_project =
+      DynamicTool.execute(
+        "gitlab_coverage",
+        %{},
+        gitlab_client: fn _params, _opts -> {:error, :missing_gitlab_project_id} end
+      )
+
+    assert Jason.decode!(missing_project["output"]) == %{
+             "error" => %{
+               "message" => "Symphony is missing a GitLab project. Provide `project_id` to `gitlab_coverage`, set `gitlab.project_id`, or export `GITLAB_PROJECT_ID`."
+             }
+           }
+
+    status_error =
+      DynamicTool.execute(
+        "gitlab_coverage",
+        %{},
+        gitlab_client: fn _params, _opts -> {:error, {:gitlab_api_status, 404, %{"message" => "404 Project Not Found"}}} end
+      )
+
+    assert Jason.decode!(status_error["output"]) == %{
+             "error" => %{
+               "body" => %{"message" => "404 Project Not Found"},
+               "message" => "GitLab coverage request failed with HTTP 404.",
+               "status" => 404
+             }
+           }
+
+    unexpected =
+      DynamicTool.execute(
+        "gitlab_coverage",
+        %{},
+        gitlab_client: fn _params, _opts -> {:error, :unexpected_gitlab_failure} end
+      )
+
+    assert Jason.decode!(unexpected["output"]) == %{
+             "error" => %{
+               "message" => "GitLab coverage tool execution failed.",
+               "reason" => ":unexpected_gitlab_failure"
+             }
+           }
   end
 end
