@@ -904,11 +904,11 @@ defmodule SymphonyElixir.CoreTest do
     assert Orchestrator.select_worker_host_for_test(state, "worker-a") == "worker-a"
   end
 
-  defp assert_due_from_baseline(due_at_ms, baseline_ms, min_delay_ms, max_remaining_ms) do
-    remaining_ms = due_at_ms - System.monotonic_time(:millisecond)
+  defp assert_due_from_baseline(due_at_ms, baseline_ms, min_delay_ms, max_delay_ms) do
+    delay_ms = due_at_ms - baseline_ms
 
-    assert due_at_ms >= baseline_ms + min_delay_ms
-    assert remaining_ms <= max_remaining_ms
+    assert delay_ms >= min_delay_ms
+    assert delay_ms <= max_delay_ms
   end
 
   defp restore_app_env(key, nil), do: Application.delete_env(:symphony_elixir, key)

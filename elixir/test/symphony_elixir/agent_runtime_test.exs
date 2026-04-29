@@ -145,7 +145,7 @@ defmodule SymphonyElixir.AgentRuntimeTest do
         labels: ["backend"]
       }
 
-      prompt = "Fix the remote issue\nusing the headless runner."
+      prompt = "Fix the remote issue\nusing 100% of the headless runner."
 
       assert {:ok, session} = AgentRuntime.start_session(remote_workspace, worker_host: "worker-01:2200")
       assert {:ok, result} = AgentRuntime.run_turn(session, prompt, issue)
