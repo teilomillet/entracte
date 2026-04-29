@@ -52,7 +52,7 @@ defmodule SymphonyElixir.AgentRuntimeTest do
       on_message = fn message -> send(parent, {ref, message}) end
 
       assert {:ok, session} = AgentRuntime.start_session(workspace)
-      assert session.agent_runtime == :headless
+      assert %Headless.Session{} = session
       assert {:ok, result} = AgentRuntime.run_turn(session, prompt, issue, on_message: on_message)
 
       assert result.result == :turn_completed
@@ -73,6 +73,85 @@ defmodule SymphonyElixir.AgentRuntimeTest do
       [prompt_file_line] = Regex.run(~r/PROMPT_FILE:(.+)\n/, trace, capture: :all_but_first)
       assert String.starts_with?(prompt_file_line, canonical_workspace)
       refute File.exists?(prompt_file_line)
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runtime dispatches explicit app-server session structs" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-app-server-runtime-session-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-APP-SESSION")
+      codex_binary = Path.join(test_root, "fake-codex")
+      File.mkdir_p!(workspace)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-runtime"}}}'
+            ;;
+          3)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-runtime"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"method":"turn/completed"}'
+            exit 0
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server"
+      )
+
+      issue = %Issue{
+        id: "issue-app-server-runtime-session",
+        identifier: "MT-APP-SESSION",
+        title: "Validate app-server runtime session",
+        description: "Ensure AgentRuntime dispatches explicit app-server session structs",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-APP-SESSION",
+        labels: ["backend"]
+      }
+
+      parent = self()
+      ref = make_ref()
+      on_message = fn message -> send(parent, {ref, message}) end
+
+      assert {:ok, session} = AgentRuntime.start_session(workspace)
+      assert %AppServer.Session{} = session
+      assert {:ok, result} = AgentRuntime.run_turn(session, "App-server prompt", issue, on_message: on_message)
+
+      assert result.session_id == "thread-runtime-turn-runtime"
+      assert result.thread_id == "thread-runtime"
+      assert result.turn_id == "turn-runtime"
+
+      assert_receive {^ref, %{event: :session_started, session_id: "thread-runtime-turn-runtime"}}
+      assert_receive {^ref, %{event: :turn_completed}}
+
+      AgentRuntime.stop_session(session)
     after
       File.rm_rf(test_root)
     end
@@ -299,20 +378,49 @@ defmodule SymphonyElixir.AgentRuntimeTest do
     assert {:error, {:unsupported_agent_runner, "unsupported"}} =
              AgentRuntime.start_session("/unused-workspace")
 
+    assert :ok = AgentRuntime.stop_session(headless_session("/unused-workspace"))
     assert :ok = AgentRuntime.stop_session(%{agent_runtime: :headless})
+    assert :ok = AgentRuntime.stop_session(%{agent_runtime: :app_server})
+
+    shell = System.find_executable("sh") || System.find_executable("bash")
+    port = Port.open({:spawn_executable, String.to_charlist(shell)}, [:binary, args: [~c"-c", ~c"sleep 1"]])
+
+    assert :ok = AgentRuntime.stop_session(%{agent_runtime: :app_server, port: port, stale_field: :ignored})
   end
 
-  test "agent runtime rejects unknown session runtimes instead of falling back to app server" do
+  test "agent runtime rejects malformed and unknown runtime sessions instead of falling back to app server" do
     issue = headless_issue("MT-UNKNOWN-RUNTIME")
 
     assert {:error, :invalid_app_server_session} =
              AgentRuntime.run_turn(%{agent_runtime: :app_server}, "prompt", issue)
+
+    assert {:error, :invalid_headless_session} =
+             AgentRuntime.run_turn(%{agent_runtime: :headless}, "prompt", issue)
 
     assert {:error, {:unsupported_agent_runtime, :future_runner}} =
              AgentRuntime.run_turn(%{agent_runtime: :future_runner}, "prompt", issue)
 
     assert {:error, :missing_agent_runtime} =
              AgentRuntime.run_turn(%{}, "prompt", issue)
+
+    assert {:error, :missing_agent_runtime} =
+             AgentRuntime.run_turn(%{workspace: "/legacy-map"}, "prompt", issue)
+
+    assert {:error, :invalid_agent_runtime_session} =
+             AgentRuntime.run_turn(:not_a_session, "prompt", issue)
+
+    assert {:error, :invalid_agent_runtime_session} =
+             AgentRuntime.run_turn([:not_a_session], "prompt", issue)
+
+    assert {:error, :invalid_app_server_session} =
+             AppServer.Session
+             |> struct()
+             |> AgentRuntime.run_turn("prompt", issue)
+
+    assert {:error, :invalid_headless_session} =
+             Headless.Session
+             |> struct()
+             |> AgentRuntime.run_turn("prompt", issue)
   end
 
   test "headless runner direct defaults report missing bash and prompt write failures" do
@@ -340,7 +448,6 @@ defmodule SymphonyElixir.AgentRuntimeTest do
       )
 
       assert {:ok, session} = Headless.start_session(workspace)
-      assert session.agent_runtime == :headless
       assert session.command == "true"
 
       System.put_env("PATH", "")
@@ -504,8 +611,7 @@ defmodule SymphonyElixir.AgentRuntimeTest do
   end
 
   defp headless_session(workspace, command \\ "true", timeout_ms \\ 1_000) do
-    %{
-      agent_runtime: :headless,
+    %Headless.Session{
       command: command,
       timeout_ms: timeout_ms,
       workspace: workspace,

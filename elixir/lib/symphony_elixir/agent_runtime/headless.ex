@@ -1,6 +1,7 @@
 defmodule SymphonyElixir.AgentRuntime.Headless do
   @moduledoc false
 
+  alias __MODULE__.Session
   alias SymphonyElixir.AgentRuntime.WorkspaceGuard
   alias SymphonyElixir.{Config, SSH}
 
@@ -9,13 +10,7 @@ defmodule SymphonyElixir.AgentRuntime.Headless do
   @max_event_text_bytes 1_000
   @max_remote_prompt_bytes 128 * 1024
 
-  @type session :: %{
-          agent_runtime: :headless,
-          command: String.t(),
-          timeout_ms: pos_integer(),
-          workspace: Path.t(),
-          worker_host: String.t() | nil
-        }
+  @type session :: Session.t()
 
   @spec start_session(Path.t(), keyword()) :: {:ok, session()} | {:error, term()}
   def start_session(workspace, opts \\ []) do
@@ -24,8 +19,7 @@ defmodule SymphonyElixir.AgentRuntime.Headless do
     with {:ok, expanded_workspace} <- WorkspaceGuard.validate_workspace_cwd(workspace, worker_host),
          {:ok, settings} <- Config.headless_runtime_settings() do
       {:ok,
-       %{
-         agent_runtime: :headless,
+       %Session{
          command: settings.command,
          timeout_ms: settings.timeout_ms,
          workspace: expanded_workspace,
@@ -35,7 +29,7 @@ defmodule SymphonyElixir.AgentRuntime.Headless do
   end
 
   @spec run_turn(session(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
-  def run_turn(session, prompt, _issue, opts \\ []) do
+  def run_turn(%Session{} = session, prompt, _issue, opts \\ []) do
     on_message = Keyword.get(opts, :on_message, &default_on_message/1)
     session_id = new_session_id()
     prompt_file = prompt_file_path(session.workspace)
@@ -66,7 +60,7 @@ defmodule SymphonyElixir.AgentRuntime.Headless do
     end
   end
 
-  defp start_port(%{worker_host: nil} = session, prompt, prompt_file) do
+  defp start_port(%Session{worker_host: nil} = session, prompt, prompt_file) do
     with {:ok, executable} <- bash_executable(),
          :ok <- File.write(prompt_file, prompt) do
       port =
@@ -86,7 +80,7 @@ defmodule SymphonyElixir.AgentRuntime.Headless do
     end
   end
 
-  defp start_port(%{worker_host: worker_host} = session, prompt, prompt_file)
+  defp start_port(%Session{worker_host: worker_host} = session, prompt, prompt_file)
        when is_binary(worker_host) do
     with :ok <- validate_remote_prompt_size(prompt) do
       remote_command = remote_launch_command(session.command, session.workspace, prompt_file, prompt)

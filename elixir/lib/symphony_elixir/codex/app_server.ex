@@ -4,6 +4,7 @@ defmodule SymphonyElixir.Codex.AppServer do
   """
 
   require Logger
+  alias __MODULE__.Session
   alias SymphonyElixir.AgentRuntime.WorkspaceGuard
   alias SymphonyElixir.{Codex.DynamicTool, Config, SSH}
 
@@ -14,17 +15,7 @@ defmodule SymphonyElixir.Codex.AppServer do
   @max_stream_log_bytes 1_000
   @non_interactive_tool_input_answer "This is a non-interactive session. Operator input is unavailable."
 
-  @type session :: %{
-          port: port(),
-          metadata: map(),
-          approval_policy: String.t() | map(),
-          auto_approve_requests: boolean(),
-          thread_sandbox: String.t(),
-          turn_sandbox_policy: map(),
-          thread_id: String.t(),
-          workspace: Path.t(),
-          worker_host: String.t() | nil
-        }
+  @type session :: Session.t()
 
   @spec run(Path.t(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def run(workspace, prompt, issue, opts \\ []) do
@@ -48,7 +39,7 @@ defmodule SymphonyElixir.Codex.AppServer do
       with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host),
            {:ok, thread_id} <- do_start_session(port, expanded_workspace, session_policies) do
         {:ok,
-         %{
+         %Session{
            port: port,
            metadata: metadata,
            approval_policy: session_policies.approval_policy,
@@ -69,7 +60,7 @@ defmodule SymphonyElixir.Codex.AppServer do
 
   @spec run_turn(session(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def run_turn(
-        %{
+        %Session{
           port: port,
           metadata: metadata,
           approval_policy: approval_policy,
@@ -141,7 +132,7 @@ defmodule SymphonyElixir.Codex.AppServer do
   end
 
   @spec stop_session(session()) :: :ok
-  def stop_session(%{port: port}) when is_port(port) do
+  def stop_session(%Session{port: port}) when is_port(port) do
     stop_port(port)
   end
 
