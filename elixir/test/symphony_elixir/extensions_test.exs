@@ -1106,6 +1106,11 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert html =~ "Console"
     assert html =~ "Recent event stream"
     assert html =~ "Show raw events"
+    assert html =~ ~s(class="diagnostics-panel" phx-mounted)
+    assert html =~ ~s(class="console-panel" phx-mounted)
+    assert html =~ ~s(class="raw-activity-panel" phx-mounted)
+    assert html =~ ~s(&quot;attrs&quot;:[&quot;open&quot;])
+    assert length(String.split(html, "ignore_attrs")) == 4
     refute html =~ "data-runtime-clock="
     refute html =~ "setInterval(refreshRuntimeClocks"
     refute html =~ "Refresh now"

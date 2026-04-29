@@ -5,6 +5,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
 
   use Phoenix.LiveView, layout: {SymphonyElixirWeb.Layouts, :app}
 
+  alias Phoenix.LiveView.JS
   alias SymphonyElixirWeb.{Endpoint, ObservabilityPubSub, Presenter}
   @runtime_tick_ms 1_000
 
@@ -244,7 +245,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
                   </ol>
                 <% end %>
 
-                <details class="diagnostics-panel">
+                <details class="diagnostics-panel" phx-mounted={JS.ignore_attributes(["open"])}>
                   <summary>
                     Diagnostics
                     <span class="diagnostics-count">
@@ -261,7 +262,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
                   </ol>
                 </details>
 
-                <details class="console-panel">
+                <details class="console-panel" phx-mounted={JS.ignore_attributes(["open"])}>
                   <summary>
                     Console
                     <span class="diagnostics-count">
@@ -296,7 +297,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
           <%= if @payload.activity == [] do %>
             <p class="empty-state">No Codex activity has been recorded yet.</p>
           <% else %>
-            <details class="raw-activity-panel">
+            <details class="raw-activity-panel" phx-mounted={JS.ignore_attributes(["open"])}>
               <summary>Show raw events</summary>
               <ol class="activity-list">
                 <li :for={entry <- @payload.activity} class="activity-item">
