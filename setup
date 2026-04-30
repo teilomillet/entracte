@@ -11,7 +11,7 @@ usage: ./setup [options]
 Guided first-time setup after cloning the repo.
 
 Options:
-  --runtime codex/app_server|sari/claude_code
+  --runtime codex/app_server|sari/claude_code|sari/opencode_lmstudio|sari/fake
   --sari-bin /path/to/sari/scripts/sari_app_server
   --project <linear-project-slug-or-url>
   --linear-api-key <key>

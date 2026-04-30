@@ -157,6 +157,19 @@ setup_interactive() {
   [ -t 0 ] && [ "${ENTRACTE_SETUP_YES:-0}" != "1" ]
 }
 
+runtime_needs_sari_bin() {
+  local runtime="$1"
+
+  case "$runtime" in
+    sari*|claude*|opencode*|fake)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 setup_command() {
   local runtime=""
   local sari_bin=""
@@ -204,7 +217,7 @@ usage: ./entracte setup [options]
 Guided first-time setup after cloning the repo.
 
 Options:
-  --runtime codex/app_server|sari/claude_code
+  --runtime codex/app_server|sari/claude_code|sari/opencode_lmstudio|sari/fake
   --sari-bin /path/to/sari/scripts/sari_app_server
   --project <linear-project-slug-or-url>
   --linear-api-key <key>
@@ -254,13 +267,24 @@ EOF
   fi
 
   if [ "$runtime_arg" = "0" ] && setup_interactive; then
-    printf 'Agent runtime: [1] Codex  [2] Sari / Claude Code (default %s): ' "${runtime_default:-codex/app_server}"
+    printf 'Agent runtime:\n'
+    printf '  [1] Codex\n'
+    printf '  [2] Sari / Claude Code\n'
+    printf '  [3] Sari / OpenCode LM Studio\n'
+    printf '  [4] Sari fake backend for local testing\n'
+    printf 'Choose runtime (default %s): ' "${runtime_default:-codex/app_server}"
     local runtime_choice=""
     IFS= read -r runtime_choice
 
     case "$runtime_choice" in
       2)
         runtime="sari/claude_code"
+        ;;
+      3)
+        runtime="sari/opencode_lmstudio"
+        ;;
+      4)
+        runtime="sari/fake"
         ;;
       "")
         runtime="${runtime_default:-codex/app_server}"
@@ -275,15 +299,15 @@ EOF
 
   runtime="${runtime:-codex/app_server}"
 
-  if [[ "$runtime" == sari* || "$runtime" == claude* ]] && [ -z "$sari_bin" ]; then
+  if runtime_needs_sari_bin "$runtime" && [ -z "$sari_bin" ]; then
     sari_bin="$(env_file_value "SARI_BIN" "$env_file")"
   fi
 
-  if [[ "$runtime" == sari* || "$runtime" == claude* ]] && [ -z "$sari_bin" ]; then
+  if runtime_needs_sari_bin "$runtime" && [ -z "$sari_bin" ]; then
     sari_bin="$(detect_sari_bin)"
   fi
 
-  if [[ "$runtime" == sari* || "$runtime" == claude* ]] && [ -z "$sari_bin" ] && setup_interactive; then
+  if runtime_needs_sari_bin "$runtime" && [ -z "$sari_bin" ] && setup_interactive; then
     printf 'Path to sari/scripts/sari_app_server: '
     IFS= read -r sari_bin
   fi
@@ -299,7 +323,7 @@ EOF
       bootstrap_args+=(--project "$project")
     fi
 
-    if [[ "$runtime" == sari* || "$runtime" == claude* ]]; then
+    if runtime_needs_sari_bin "$runtime"; then
       if [ -z "$sari_bin" ]; then
         die "Sari runtime needs --sari-bin /path/to/sari/scripts/sari_app_server."
       fi

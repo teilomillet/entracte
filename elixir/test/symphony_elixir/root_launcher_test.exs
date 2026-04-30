@@ -12,6 +12,10 @@ defmodule EntrActe.RootLauncherTest do
 
     assert output =~ "usage: ./setup"
     assert output =~ "Guided first-time setup"
+    assert output =~ "codex/app_server"
+    assert output =~ "sari/claude_code"
+    assert output =~ "sari/opencode_lmstudio"
+    assert output =~ "sari/fake"
   end
 
   test "setup command runs the toolchain setup without requiring mix on PATH" do
@@ -43,6 +47,54 @@ defmodule EntrActe.RootLauncherTest do
     assert Enum.any?(commands, &String.ends_with?(&1, " :: exec -- mix build"))
     assert output =~ "Skipped tracker bootstrap."
     assert output =~ "./entracte start"
+  end
+
+  test "setup command forwards OpenCode runtime aliases with the Sari binary" do
+    tmp_dir = Path.join(System.tmp_dir!(), "entracte-root-launcher-test-#{System.unique_integer([:positive])}")
+    File.rm_rf!(tmp_dir)
+    File.mkdir_p!(tmp_dir)
+
+    on_exit(fn -> File.rm_rf!(tmp_dir) end)
+
+    fake_elixir_dir = Path.join(tmp_dir, "elixir")
+    File.mkdir_p!(fake_elixir_dir)
+    File.write!(Path.join(fake_elixir_dir, ".env.example"), "LINEAR_API_KEY=\n")
+
+    stub_dir = write_mise_stub!(tmp_dir)
+    launcher = Path.join(repo_root(), "entracte")
+
+    {output, status} =
+      System.cmd(
+        launcher,
+        [
+          "setup",
+          "--yes",
+          "--runtime",
+          "opencode",
+          "--sari-bin",
+          "/opt/sari/scripts/sari_app_server",
+          "--linear-api-key",
+          "lin_api_key",
+          "--project",
+          "https://linear.app/teilo/project/sellerie-f26dbad5798d/overview"
+        ],
+        env: [
+          {"PATH", stub_dir <> ":" <> System.get_env("PATH", "")},
+          {"CAPTURE_COMMANDS", Path.join(tmp_dir, "commands.txt")},
+          {"ENTRACTE_HOME", fake_elixir_dir},
+          {"ENTRACTE_SETUP_YES", "1"}
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, output
+
+    assert Enum.any?(captured_commands(tmp_dir), fn command ->
+             String.ends_with?(
+               command,
+               " :: exec -- mix symphony.bootstrap --runtime opencode --project sellerie-f26dbad5798d --sari-bin /opt/sari/scripts/sari_app_server"
+             )
+           end)
   end
 
   defp write_mise_stub!(tmp_dir) do
