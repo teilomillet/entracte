@@ -323,6 +323,12 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       "description" => "Needs dependency",
       "priority" => 2,
       "state" => %{"name" => "Todo"},
+      "project" => %{
+        "id" => "project-1",
+        "name" => "Entr'acte",
+        "slugId" => "entracte",
+        "url" => "https://linear.app/acme/project/entracte"
+      },
       "branchName" => "mt-1",
       "url" => "https://example.org/issues/MT-1",
       "assignee" => %{
@@ -359,6 +365,9 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert issue.labels == ["backend"]
     assert issue.priority == 2
     assert issue.state == "Todo"
+    assert issue.project.name == "Entr'acte"
+    assert issue.project.slug == "entracte"
+    assert issue.project.url == "https://linear.app/acme/project/entracte"
     assert issue.assignee_id == "user-1"
     assert issue.assigned_to_worker
   end

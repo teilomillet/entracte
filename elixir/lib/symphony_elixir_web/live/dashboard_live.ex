@@ -107,6 +107,49 @@ defmodule SymphonyElixirWeb.DashboardLive do
           </article>
         </section>
 
+        <section class="section-card">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">Tokens by project</h2>
+              <p class="section-copy">Aggregate Codex token usage grouped by tracker project.</p>
+            </div>
+          </div>
+
+          <%= if project_totals(@payload) == [] do %>
+            <p class="empty-state">No project token usage recorded yet.</p>
+          <% else %>
+            <div class="table-wrap">
+              <table class="data-table" style="min-width: 680px;">
+                <thead>
+                  <tr>
+                    <th>Project</th>
+                    <th>Total</th>
+                    <th>Input</th>
+                    <th>Output</th>
+                    <th>Runtime</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr :for={entry <- project_totals(@payload)}>
+                    <td>
+                      <div class="issue-stack">
+                        <span class="issue-id"><%= project_name(entry.project) %></span>
+                        <%= if project_slug(entry.project) do %>
+                          <span class="muted"><%= project_slug(entry.project) %></span>
+                        <% end %>
+                      </div>
+                    </td>
+                    <td class="numeric"><%= format_int(entry.total_tokens) %></td>
+                    <td class="numeric"><%= format_int(entry.input_tokens) %></td>
+                    <td class="numeric"><%= format_int(entry.output_tokens) %></td>
+                    <td class="numeric"><%= format_runtime_seconds(entry.seconds_running) %></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          <% end %>
+        </section>
+
         <section class="section-card activity-section">
           <div class="section-header">
             <div>
@@ -479,6 +522,17 @@ defmodule SymphonyElixirWeb.DashboardLive do
   defp completed_runtime_seconds(payload) do
     payload.codex_totals.seconds_running || 0
   end
+
+  defp project_totals(payload) do
+    Map.get(payload, :codex_project_totals, []) || []
+  end
+
+  defp project_name(%{name: name}) when is_binary(name) and name != "", do: name
+  defp project_name(%{slug: slug}) when is_binary(slug) and slug != "", do: slug
+  defp project_name(_project), do: "Unknown project"
+
+  defp project_slug(%{slug: slug}) when is_binary(slug) and slug != "", do: slug
+  defp project_slug(_project), do: nil
 
   defp total_runtime_seconds(payload, now) do
     completed_runtime_seconds(payload) +

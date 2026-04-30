@@ -316,6 +316,7 @@ defmodule SymphonyElixir.StatusDashboard do
              running: running,
              retrying: retrying,
              codex_totals: codex_totals,
+             codex_project_totals: Map.get(snapshot, :codex_project_totals, []),
              rate_limits: Map.get(snapshot, :rate_limits),
              polling: Map.get(snapshot, :polling)
            }},
@@ -340,6 +341,7 @@ defmodule SymphonyElixir.StatusDashboard do
         codex_output_tokens = Map.get(codex_totals, :output_tokens, 0)
         codex_total_tokens = Map.get(codex_totals, :total_tokens, 0)
         codex_seconds_running = Map.get(codex_totals, :seconds_running, 0)
+        project_token_lines = format_project_token_lines(Map.get(snapshot, :codex_project_totals, []))
         agent_count = length(running)
         max_agents = Config.settings!().agent.max_concurrent_agents
         running_event_width = running_event_width(terminal_columns_override)
@@ -362,6 +364,7 @@ defmodule SymphonyElixir.StatusDashboard do
              colorize("out #{format_count(codex_output_tokens)}", @ansi_yellow) <>
              colorize(" | ", @ansi_gray) <>
              colorize("total #{format_count(codex_total_tokens)}", @ansi_yellow),
+           project_token_lines,
            colorize("│ Rate Limits: ", @ansi_bold) <> format_rate_limits(rate_limits),
            project_link_lines,
            project_refresh_line,
@@ -437,6 +440,49 @@ defmodule SymphonyElixir.StatusDashboard do
   defp format_project_refresh_line(_) do
     colorize("│ Next refresh: ", @ansi_bold) <> colorize("n/a", @ansi_gray)
   end
+
+  defp format_project_token_lines([]), do: []
+  defp format_project_token_lines(nil), do: []
+
+  defp format_project_token_lines(project_totals) when is_list(project_totals) do
+    project_totals
+    |> Enum.map(&format_project_token_line/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp format_project_token_lines(_project_totals), do: []
+
+  defp format_project_token_line(project_total) when is_map(project_total) do
+    project = Map.get(project_total, :project) || Map.get(project_total, "project") || %{}
+    input_tokens = project_total_value(project_total, :input_tokens)
+    output_tokens = project_total_value(project_total, :output_tokens)
+    total_tokens = project_total_value(project_total, :total_tokens)
+
+    colorize("│ Project Tokens: ", @ansi_bold) <>
+      colorize(project_token_label(project), @ansi_cyan) <>
+      colorize(" total #{format_count(total_tokens)}", @ansi_yellow) <>
+      colorize(" (", @ansi_gray) <>
+      colorize("in #{format_count(input_tokens)}", @ansi_yellow) <>
+      colorize(" / ", @ansi_gray) <>
+      colorize("out #{format_count(output_tokens)}", @ansi_yellow) <>
+      colorize(")", @ansi_gray)
+  end
+
+  defp format_project_token_line(_project_total), do: nil
+
+  defp project_total_value(project_total, key) when is_map(project_total) do
+    Map.get(project_total, key) || Map.get(project_total, Atom.to_string(key)) || 0
+  end
+
+  defp project_token_label(project) when is_map(project) do
+    Map.get(project, :name) ||
+      Map.get(project, "name") ||
+      Map.get(project, :slug) ||
+      Map.get(project, "slug") ||
+      "Unknown project"
+  end
+
+  defp project_token_label(_project), do: "Unknown project"
 
   defp configured_project_slugs(tracker) do
     case Map.get(tracker, :project_slugs, []) do

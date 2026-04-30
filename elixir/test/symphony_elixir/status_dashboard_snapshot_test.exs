@@ -195,9 +195,35 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
     Snapshot.assert_dashboard_snapshot!("credits_unlimited", render_snapshot(snapshot_data, 42.0))
   end
 
+  test "status dashboard renders project token totals when present" do
+    snapshot_data =
+      {:ok,
+       %{
+         running: [],
+         retrying: [],
+         codex_totals: %{input_tokens: 12, output_tokens: 4, total_tokens: 16, seconds_running: 0},
+         codex_project_totals: [
+           %{
+             project: %{id: "project-1", name: "Entr'acte", slug: "entracte", url: nil},
+             input_tokens: 12,
+             output_tokens: 4,
+             total_tokens: 16,
+             seconds_running: 0
+           }
+         ],
+         rate_limits: nil
+       }}
+
+    plain = snapshot_data |> render_snapshot(0.0) |> strip_ansi()
+
+    assert plain =~ "│ Project Tokens: Entr'acte total 16 (in 12 / out 4)"
+  end
+
   defp render_snapshot(snapshot_data, tps) do
     StatusDashboard.format_snapshot_content_for_test(snapshot_data, tps, @terminal_columns)
   end
+
+  defp strip_ansi(value), do: Regex.replace(~r/\e\[[0-9;]*m/, value, "")
 
   defp running_entry(overrides) do
     Map.merge(

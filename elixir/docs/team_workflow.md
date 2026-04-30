@@ -188,9 +188,9 @@ Open `http://127.0.0.1:4000` on the runner machine to watch active work.
   latest pushed PR head when available, wait for that review run to complete, and address or
   explicitly push back on every actionable Sourcery and human comment.
 - A human should review PRs before moving issues to `Merging`.
-- The runner's dashboard and logs show token totals for the daemon, but spend attribution is by
-  runner/Codex account. If per-person chargeback matters, use per-person runners or separate service
-  accounts per runner.
+- The runner's dashboard and logs show token totals for the daemon and a per-project breakdown when
+  issue project metadata is available, but spend attribution is still by runner/Codex account. If
+  per-person chargeback matters, use per-person runners or separate service accounts per runner.
 - One Symphony runner can watch several Linear projects with `LINEAR_PROJECT_SLUGS` when those
   projects share the same repo, workflow, Codex account, workspace root, and runner machine. Use
   separate ignored env profiles only when those values need to differ. If `.env` defines

@@ -39,6 +39,7 @@ defmodule SymphonyElixirWeb.Presenter do
           running: Enum.map(snapshot.running, &running_entry_payload/1),
           retrying: Enum.map(snapshot.retrying, &retry_entry_payload/1),
           codex_totals: snapshot.codex_totals,
+          codex_project_totals: project_totals_payload(Map.get(snapshot, :codex_project_totals, [])),
           rate_limits: snapshot.rate_limits
         }
 
@@ -122,6 +123,7 @@ defmodule SymphonyElixirWeb.Presenter do
       issue_id: entry.issue_id,
       issue_identifier: entry.identifier,
       state: entry.state,
+      project: project_payload(Map.get(entry, :project)),
       worker_host: Map.get(entry, :worker_host),
       workspace_path: workspace_path,
       workspace_git: workspace_git_payload(workspace_path),
@@ -166,6 +168,7 @@ defmodule SymphonyElixirWeb.Presenter do
       session_id: running.session_id,
       turn_count: Map.get(running, :turn_count, 0),
       state: running.state,
+      project: project_payload(Map.get(running, :project)),
       started_at: iso8601(running.started_at),
       last_event: running.last_codex_event,
       last_message: summarize_message(running.last_codex_message),
@@ -190,6 +193,35 @@ defmodule SymphonyElixirWeb.Presenter do
       worker_host: Map.get(retry, :worker_host),
       workspace_path: Map.get(retry, :workspace_path)
     }
+  end
+
+  defp project_totals_payload(project_totals) when is_list(project_totals) do
+    Enum.map(project_totals, fn project_total ->
+      %{
+        project: project_payload(Map.get(project_total, :project) || Map.get(project_total, "project")),
+        input_tokens: numeric_value(project_total, :input_tokens),
+        output_tokens: numeric_value(project_total, :output_tokens),
+        total_tokens: numeric_value(project_total, :total_tokens),
+        seconds_running: numeric_value(project_total, :seconds_running)
+      }
+    end)
+  end
+
+  defp project_totals_payload(_project_totals), do: []
+
+  defp project_payload(%{} = project) do
+    %{
+      id: Map.get(project, :id) || Map.get(project, "id"),
+      name: Map.get(project, :name) || Map.get(project, "name") || "Unknown project",
+      slug: Map.get(project, :slug) || Map.get(project, "slug"),
+      url: Map.get(project, :url) || Map.get(project, "url")
+    }
+  end
+
+  defp project_payload(_project), do: %{id: nil, name: "Unknown project", slug: nil, url: nil}
+
+  defp numeric_value(map, key) when is_map(map) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key)) || 0
   end
 
   defp workspace_path(issue_identifier, running, retry) do

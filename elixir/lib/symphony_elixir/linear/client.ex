@@ -6,6 +6,7 @@ defmodule SymphonyElixir.Linear.Client do
   require Logger
   alias SymphonyElixir.Config
   alias SymphonyElixir.Tracker.Issue
+  alias SymphonyElixir.Tracker.Project
 
   @issue_page_size 50
   @max_error_body_log_bytes 1_000
@@ -21,6 +22,12 @@ defmodule SymphonyElixir.Linear.Client do
         priority
         state {
           name
+        }
+        project {
+          id
+          name
+          slugId
+          url
         }
         branchName
         url
@@ -66,6 +73,12 @@ defmodule SymphonyElixir.Linear.Client do
         priority
         state {
           name
+        }
+        project {
+          id
+          name
+          slugId
+          url
         }
         branchName
         url
@@ -543,6 +556,7 @@ defmodule SymphonyElixir.Linear.Client do
       description: issue["description"],
       priority: parse_priority(issue["priority"]),
       state: get_in(issue, ["state", "name"]),
+      project: normalize_project(issue["project"]),
       branch_name: issue["branchName"],
       url: issue["url"],
       assignee_id: assignee_field(assignee, "id"),
@@ -555,6 +569,18 @@ defmodule SymphonyElixir.Linear.Client do
   end
 
   defp normalize_issue(_issue, _assignee_filter), do: nil
+
+  defp normalize_project(%{"slugId" => slug} = project) when is_binary(slug) and slug != "" do
+    %Project{
+      id: project["id"],
+      name: project["name"],
+      slug: slug,
+      url: project["url"],
+      metadata: %{provider: :linear, raw: project}
+    }
+  end
+
+  defp normalize_project(_project), do: nil
 
   defp assignee_field(%{} = assignee, field) when is_binary(field), do: assignee[field]
   defp assignee_field(_assignee, _field), do: nil

@@ -8,7 +8,7 @@ defmodule SymphonyElixir.Orchestrator do
   import Bitwise, only: [<<<: 2]
 
   alias SymphonyElixir.{AgentRunner, Config, StatusDashboard, Tracker, Workspace}
-  alias SymphonyElixir.Tracker.Issue
+  alias SymphonyElixir.Tracker.{Issue, Project}
 
   @continuation_retry_delay_ms 1_000
   @failure_retry_base_ms 10_000
@@ -39,6 +39,7 @@ defmodule SymphonyElixir.Orchestrator do
       claimed: MapSet.new(),
       retry_attempts: %{},
       codex_totals: nil,
+      codex_project_totals: %{},
       codex_rate_limits: nil
     ]
   end
@@ -62,6 +63,7 @@ defmodule SymphonyElixir.Orchestrator do
       tick_timer_ref: nil,
       tick_token: nil,
       codex_totals: @empty_codex_totals,
+      codex_project_totals: %{},
       codex_rate_limits: nil
     }
 
@@ -195,6 +197,7 @@ defmodule SymphonyElixir.Orchestrator do
         state =
           state
           |> apply_codex_token_delta(token_delta)
+          |> apply_codex_project_delta(updated_running_entry, token_delta)
           |> apply_codex_rate_limits(update)
 
         notify_dashboard()
@@ -1148,6 +1151,7 @@ defmodule SymphonyElixir.Orchestrator do
           issue_id: issue_id,
           identifier: metadata.identifier,
           state: metadata.issue.state,
+          project: Map.get(metadata, :project) || project_summary(metadata.issue.project),
           worker_host: Map.get(metadata, :worker_host),
           workspace_path: Map.get(metadata, :workspace_path),
           session_id: metadata.session_id,
@@ -1185,6 +1189,7 @@ defmodule SymphonyElixir.Orchestrator do
        running: running,
        retrying: retrying,
        codex_totals: state.codex_totals,
+       codex_project_totals: project_totals_snapshot(state.codex_project_totals),
        rate_limits: Map.get(state, :codex_rate_limits),
        polling: %{
          checking?: state.poll_check_in_progress == true,
@@ -1226,6 +1231,7 @@ defmodule SymphonyElixir.Orchestrator do
       Map.merge(running_entry, %{
         last_codex_timestamp: timestamp,
         last_codex_message: summary,
+        project: running_entry |> running_entry_project() |> project_summary(),
         session_id: session_id_for_update(running_entry.session_id, update),
         last_codex_event: event,
         codex_recent_events: update_recent_codex_events(running_entry, summary),
@@ -1355,7 +1361,14 @@ defmodule SymphonyElixir.Orchestrator do
         }
       )
 
-    %{state | codex_totals: codex_totals}
+    state
+    |> Map.put(:codex_totals, codex_totals)
+    |> apply_codex_project_delta(running_entry, %{
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: 0,
+      seconds_running: runtime_seconds
+    })
   end
 
   defp record_session_completion_totals(state, _running_entry), do: state
@@ -1389,6 +1402,36 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp apply_codex_token_delta(state, _token_delta), do: state
 
+  defp apply_codex_project_delta(%State{} = state, running_entry, token_delta)
+       when is_map(running_entry) and is_map(token_delta) do
+    if zero_token_delta?(token_delta) do
+      state
+    else
+      project = running_entry_project(running_entry)
+      project_key = project_total_key(project)
+      project_summary = project_summary(project)
+
+      project_totals =
+        state
+        |> Map.get(:codex_project_totals, %{})
+        |> normalize_project_totals()
+        |> Map.update(
+          project_key,
+          project
+          |> empty_project_total()
+          |> apply_token_delta(token_delta)
+          |> Map.put(:project, project_summary),
+          &(&1
+            |> apply_token_delta(token_delta)
+            |> Map.put(:project, project_summary))
+        )
+
+      %{state | codex_project_totals: project_totals}
+    end
+  end
+
+  defp apply_codex_project_delta(state, _running_entry, _token_delta), do: state
+
   defp apply_codex_rate_limits(%State{} = state, update) when is_map(update) do
     case extract_rate_limits(update) do
       %{} = rate_limits ->
@@ -1415,6 +1458,109 @@ defmodule SymphonyElixir.Orchestrator do
       total_tokens: max(0, total_tokens),
       seconds_running: max(0, seconds_running)
     }
+  end
+
+  defp normalize_project_totals(project_totals) when is_map(project_totals), do: project_totals
+  defp normalize_project_totals(_project_totals), do: %{}
+
+  defp empty_project_total(project) do
+    %{
+      project: project_summary(project),
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: 0,
+      seconds_running: 0
+    }
+  end
+
+  defp zero_token_delta?(token_delta) when is_map(token_delta) do
+    Enum.all?([:input_tokens, :output_tokens, :total_tokens, :seconds_running], fn key ->
+      Map.get(token_delta, key, 0) == 0
+    end)
+  end
+
+  defp running_entry_project(running_entry) when is_map(running_entry) do
+    Map.get(running_entry, :project) ||
+      running_entry
+      |> Map.get(:issue)
+      |> issue_project()
+  end
+
+  defp issue_project(%{} = issue), do: Map.get(issue, :project) || Map.get(issue, "project")
+  defp issue_project(_issue), do: nil
+
+  defp project_totals_snapshot(project_totals) when is_map(project_totals) do
+    project_totals
+    |> Map.values()
+    |> Enum.map(&normalize_project_total/1)
+    |> Enum.sort_by(&project_total_sort_key/1)
+  end
+
+  defp project_totals_snapshot(_project_totals), do: []
+
+  defp normalize_project_total(project_total) when is_map(project_total) do
+    %{
+      project: Map.get(project_total, :project) || project_summary(nil),
+      input_tokens: Map.get(project_total, :input_tokens, 0),
+      output_tokens: Map.get(project_total, :output_tokens, 0),
+      total_tokens: Map.get(project_total, :total_tokens, 0),
+      seconds_running: Map.get(project_total, :seconds_running, 0)
+    }
+  end
+
+  defp project_total_sort_key(%{project: project, total_tokens: total_tokens}) do
+    {project_sort_name(project), project_slug(project), -1 * total_tokens}
+  end
+
+  defp project_sort_name(%{name: name}) when is_binary(name), do: String.downcase(name)
+  defp project_sort_name(_project), do: "unknown project"
+
+  defp project_slug(%{slug: slug}) when is_binary(slug), do: slug
+  defp project_slug(_project), do: ""
+
+  defp project_total_key(%Project{slug: slug}) when is_binary(slug) and slug != "", do: "slug:#{slug}"
+  defp project_total_key(%Project{id: id}) when is_binary(id) and id != "", do: "id:#{id}"
+  defp project_total_key(%Project{name: name}) when is_binary(name) and name != "", do: "name:#{String.downcase(name)}"
+  defp project_total_key(%{slug: slug}) when is_binary(slug) and slug != "", do: "slug:#{slug}"
+  defp project_total_key(%{"slug" => slug}) when is_binary(slug) and slug != "", do: "slug:#{slug}"
+  defp project_total_key(%{id: id}) when is_binary(id) and id != "", do: "id:#{id}"
+  defp project_total_key(%{"id" => id}) when is_binary(id) and id != "", do: "id:#{id}"
+  defp project_total_key(%{name: name}) when is_binary(name) and name != "", do: "name:#{String.downcase(name)}"
+  defp project_total_key(%{"name" => name}) when is_binary(name) and name != "", do: "name:#{String.downcase(name)}"
+  defp project_total_key(_project), do: "unknown"
+
+  defp project_summary(%Project{} = project) do
+    %{
+      id: project.id,
+      name: project_display_name(project),
+      slug: project.slug,
+      url: project.url
+    }
+  end
+
+  defp project_summary(%{} = project) do
+    %{
+      id: Map.get(project, :id) || Map.get(project, "id"),
+      name: project_display_name(project),
+      slug: Map.get(project, :slug) || Map.get(project, "slug"),
+      url: Map.get(project, :url) || Map.get(project, "url")
+    }
+  end
+
+  defp project_summary(_project), do: %{id: nil, name: "Unknown project", slug: nil, url: nil}
+
+  defp project_display_name(%Project{name: name}) when is_binary(name) and name != "", do: name
+  defp project_display_name(%Project{slug: slug}) when is_binary(slug) and slug != "", do: slug
+  defp project_display_name(%Project{id: id}) when is_binary(id) and id != "", do: id
+
+  defp project_display_name(%{} = project) do
+    Map.get(project, :name) ||
+      Map.get(project, "name") ||
+      Map.get(project, :slug) ||
+      Map.get(project, "slug") ||
+      Map.get(project, :id) ||
+      Map.get(project, "id") ||
+      "Unknown project"
   end
 
   defp extract_token_delta(running_entry, %{event: _, timestamp: _} = update) do
