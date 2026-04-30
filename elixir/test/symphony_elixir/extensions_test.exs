@@ -763,6 +763,12 @@ defmodule SymphonyElixir.ExtensionsTest do
                  "issue_id" => "issue-http",
                  "issue_identifier" => "MT-HTTP",
                  "state" => "In Progress",
+                 "project" => %{
+                   "id" => "project-1",
+                   "name" => "Entr'acte",
+                   "slug" => "entracte",
+                   "url" => "https://linear.app/acme/project/entracte"
+                 },
                  "worker_host" => nil,
                  "workspace_path" => nil,
                  "workspace_git" => %{"available" => false, "reason" => "workspace unavailable"},
@@ -816,6 +822,20 @@ defmodule SymphonyElixir.ExtensionsTest do
                "total_tokens" => 12,
                "seconds_running" => 42.5
              },
+             "codex_project_totals" => [
+               %{
+                 "project" => %{
+                   "id" => "project-1",
+                   "name" => "Entr'acte",
+                   "slug" => "entracte",
+                   "url" => "https://linear.app/acme/project/entracte"
+                 },
+                 "input_tokens" => 4,
+                 "output_tokens" => 8,
+                 "total_tokens" => 12,
+                 "seconds_running" => 42.5
+               }
+             ],
              "rate_limits" => %{"primary" => %{"remaining" => 11}}
            }
 
@@ -838,6 +858,12 @@ defmodule SymphonyElixir.ExtensionsTest do
                "session_id" => "thread-http",
                "turn_count" => 7,
                "state" => "In Progress",
+               "project" => %{
+                 "id" => "project-1",
+                 "name" => "Entr'acte",
+                 "slug" => "entracte",
+                 "url" => "https://linear.app/acme/project/entracte"
+               },
                "started_at" => issue_payload["running"]["started_at"],
                "last_event" => "notification",
                "last_message" => "rendered",
@@ -1124,6 +1150,12 @@ defmodule SymphonyElixir.ExtensionsTest do
           issue_id: "issue-http",
           identifier: "MT-HTTP",
           state: "In Progress",
+          project: %{
+            id: "project-1",
+            name: "Entr'acte",
+            slug: "entracte",
+            url: "https://linear.app/acme/project/entracte"
+          },
           session_id: "thread-http",
           turn_count: 8,
           last_codex_event: :notification,
@@ -1255,6 +1287,12 @@ defmodule SymphonyElixir.ExtensionsTest do
           issue_id: "issue-http",
           identifier: "MT-HTTP",
           state: "In Progress",
+          project: %{
+            id: "project-1",
+            name: "Entr'acte",
+            slug: "entracte",
+            url: "https://linear.app/acme/project/entracte"
+          },
           session_id: "thread-http",
           turn_count: 7,
           codex_app_server_pid: nil,
@@ -1280,6 +1318,20 @@ defmodule SymphonyElixir.ExtensionsTest do
         }
       ],
       codex_totals: %{input_tokens: 4, output_tokens: 8, total_tokens: 12, seconds_running: 42.5},
+      codex_project_totals: [
+        %{
+          project: %{
+            id: "project-1",
+            name: "Entr'acte",
+            slug: "entracte",
+            url: "https://linear.app/acme/project/entracte"
+          },
+          input_tokens: 4,
+          output_tokens: 8,
+          total_tokens: 12,
+          seconds_running: 42.5
+        }
+      ],
       rate_limits: %{"primary" => %{"remaining" => 11}}
     }
   end

@@ -292,6 +292,9 @@ If Symphony documents token reporting externally, the contract should be:
 - Live token totals come from Codex thread-scoped cumulative usage.
 - Incremental usage may also be emitted, but Symphony does not use it for totals.
 - Turn-completed usage is event-specific and should not be assumed to be a fresh additive increment.
+- Per-project totals use the same accepted token delta as the overall runner total and group it by
+  normalized tracker project identity, falling back to an explicit unknown-project bucket when the
+  tracker payload lacks project data.
 - Reporting is thread-based, and multiple turns can occur on one thread.
 
 ## Implementation Checklist

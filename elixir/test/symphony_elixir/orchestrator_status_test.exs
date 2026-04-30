@@ -116,6 +116,12 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       title: "Usage snapshot test",
       description: "Collect usage stats",
       state: "In Progress",
+      project: %SymphonyElixir.Tracker.Project{
+        id: "project-1",
+        name: "Entr'acte",
+        slug: "entracte",
+        url: "https://linear.app/acme/project/entracte"
+      },
       url: "https://example.org/issues/MT-201"
     }
 
@@ -198,13 +204,47 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     assert snapshot_entry.turn_count == 1
     assert is_integer(snapshot_entry.runtime_seconds)
 
-    send(pid, {:DOWN, process_ref, :process, self(), :normal})
-    completed_state = :sys.get_state(pid)
+    assert snapshot_entry.project == %{
+             id: "project-1",
+             name: "Entr'acte",
+             slug: "entracte",
+             url: "https://linear.app/acme/project/entracte"
+           }
 
-    assert completed_state.codex_totals.input_tokens == 12
-    assert completed_state.codex_totals.output_tokens == 4
-    assert completed_state.codex_totals.total_tokens == 16
-    assert is_integer(completed_state.codex_totals.seconds_running)
+    assert snapshot.codex_project_totals == [
+             %{
+               project: %{
+                 id: "project-1",
+                 name: "Entr'acte",
+                 slug: "entracte",
+                 url: "https://linear.app/acme/project/entracte"
+               },
+               input_tokens: 12,
+               output_tokens: 4,
+               total_tokens: 16,
+               seconds_running: 0
+             }
+           ]
+
+    send(pid, {:DOWN, process_ref, :process, self(), :normal})
+    completed_snapshot = GenServer.call(pid, :snapshot)
+
+    assert completed_snapshot.codex_totals.input_tokens == 12
+    assert completed_snapshot.codex_totals.output_tokens == 4
+    assert completed_snapshot.codex_totals.total_tokens == 16
+    assert is_integer(completed_snapshot.codex_totals.seconds_running)
+
+    assert [
+             %{
+               project: %{slug: "entracte"},
+               input_tokens: 12,
+               output_tokens: 4,
+               total_tokens: 16,
+               seconds_running: seconds_running
+             }
+           ] = completed_snapshot.codex_project_totals
+
+    assert is_integer(seconds_running)
   end
 
   test "orchestrator snapshot tracks turn completed usage when present" do
@@ -274,6 +314,16 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     assert snapshot_entry.codex_input_tokens == 12
     assert snapshot_entry.codex_output_tokens == 4
     assert snapshot_entry.codex_total_tokens == 16
+
+    assert snapshot.codex_project_totals == [
+             %{
+               project: %{id: nil, name: "Unknown project", slug: nil, url: nil},
+               input_tokens: 12,
+               output_tokens: 4,
+               total_tokens: 16,
+               seconds_running: 0
+             }
+           ]
 
     send(pid, {:DOWN, process_ref, :process, self(), :normal})
     completed_state = :sys.get_state(pid)

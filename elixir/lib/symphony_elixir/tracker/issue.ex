@@ -6,6 +6,8 @@ defmodule SymphonyElixir.Tracker.Issue do
   before the orchestrator, workspace, prompt builder, or agent runner see them.
   """
 
+  alias SymphonyElixir.Tracker.Project
+
   defstruct [
     :id,
     :identifier,
@@ -13,6 +15,7 @@ defmodule SymphonyElixir.Tracker.Issue do
     :description,
     :priority,
     :state,
+    :project,
     :branch_name,
     :url,
     :assignee_id,
@@ -36,6 +39,7 @@ defmodule SymphonyElixir.Tracker.Issue do
           description: String.t() | nil,
           priority: integer() | nil,
           state: String.t() | nil,
+          project: Project.t() | nil,
           branch_name: String.t() | nil,
           url: String.t() | nil,
           assignee_id: String.t() | nil,

@@ -1527,6 +1527,12 @@ SHOULD return:
   - `output_tokens`
   - `total_tokens`
   - `seconds_running` (aggregate runtime seconds as of snapshot time, including active sessions)
+- `codex_project_totals` (list of token/runtime totals grouped by tracker project)
+  - `project` (`id`, `name`, `slug`, `url`)
+  - `input_tokens`
+  - `output_tokens`
+  - `total_tokens`
+  - `seconds_running`
 - `rate_limits` (latest coding-agent rate limit payload, if available)
 
 RECOMMENDED snapshot error modes:
@@ -1556,7 +1562,8 @@ Token accounting rules:
 - For absolute totals, track deltas relative to last reported totals to avoid double-counting.
 - Do not treat generic `usage` maps as cumulative totals unless the event type defines them that
   way.
-- Accumulate aggregate totals in orchestrator state.
+- Accumulate aggregate totals in orchestrator state, including per-project totals when tracker
+  project identity is known.
 
 Runtime accounting:
 
@@ -1670,6 +1677,20 @@ Minimum endpoints:
         "total_tokens": 7400,
         "seconds_running": 1834.2
       },
+      "codex_project_totals": [
+        {
+          "project": {
+            "id": "project-1",
+            "name": "Core Platform",
+            "slug": "core-platform",
+            "url": "https://linear.app/acme/project/core-platform"
+          },
+          "input_tokens": 3000,
+          "output_tokens": 1600,
+          "total_tokens": 4600,
+          "seconds_running": 1200
+        }
+      ],
       "rate_limits": null
     }
     ```
