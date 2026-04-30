@@ -72,7 +72,7 @@ defmodule SymphonyElixir.CoreTest do
       codex_command: ""
     )
 
-    assert {:error, :missing_codex_command} = Config.validate!()
+    assert {:error, :missing_app_server_command} = Config.validate!()
 
     write_workflow_file!(Workflow.workflow_file_path(), codex_command: "   ")
     assert :ok = Config.validate!()
@@ -138,6 +138,11 @@ defmodule SymphonyElixir.CoreTest do
     assert Map.get(hooks, "after_create") =~ "cd elixir && mise trust"
     assert Map.get(hooks, "after_create") =~ "mise exec -- mix deps.get"
     assert Map.get(hooks, "before_remove") =~ "cd elixir && mise exec -- mix workspace.before_remove"
+
+    runtime = Map.get(config, "runtime", %{})
+    assert is_map(runtime)
+    assert Map.get(runtime, "command") =~ "${CODEX_BIN:-codex}"
+    assert Map.get(runtime, "preset") == "codex/app_server"
 
     assert String.trim(prompt) != ""
     assert is_binary(Config.workflow_prompt())

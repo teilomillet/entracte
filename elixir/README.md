@@ -161,7 +161,7 @@ agent:
   runner: app_server
   max_concurrent_agents: 10
   max_turns: 20
-codex:
+runtime:
   command: codex app-server
 ---
 
@@ -176,11 +176,13 @@ Notes:
 - `agent.runner` selects the execution primitive. `app_server` is the default and uses the Codex
   app-server protocol. `headless` runs `headless.command` in the issue workspace and provides the
   rendered issue prompt on stdin plus `SYMPHONY_AGENT_PROMPT_FILE`.
-- Safer Codex defaults are used when policy fields are omitted:
+- Safer app-server defaults are used when policy fields are omitted. Neutral
+  `runtime.*` fields are preferred; legacy `codex.*` fields remain as
+  compatibility fallbacks:
   - `codex.approval_policy` defaults to `{"reject":{"sandbox_approval":true,"rules":true,"mcp_elicitations":true}}`
   - `codex.thread_sandbox` defaults to `workspace-write`
   - `codex.turn_sandbox_policy` defaults to a `workspaceWrite` policy rooted at the current issue workspace
-- The shipped `WORKFLOW.md` intentionally sets `codex.thread_sandbox: danger-full-access` and a
+- The shipped `WORKFLOW.md` intentionally sets `runtime.thread_sandbox: danger-full-access` and a
   `dangerFullAccess` turn policy because the default agent workflow must create branches, write Git
   metadata, push, and open PRs from the per-issue workspace. Use stricter sandbox settings only for
   workflows that do not need to publish Git work.
@@ -193,14 +195,17 @@ Notes:
   invocation when a turn completes normally but the issue is still in an active state. Default: `20`.
 
 A backend-neutral app-server facade such as Sari can use the same `app_server`
-runner by replacing `codex.command` with a command that speaks the compatible
-JSON-RPC stdio protocol. Entr'acte still launches it from the issue workspace:
+runner by setting `runtime.command` to any command that speaks the compatible
+JSON-RPC stdio protocol. Entr'acte still launches it from the issue workspace;
+legacy `codex.command` remains a compatibility fallback when `runtime.command`
+is omitted:
 
 ```yaml
 agent:
   runner: app_server
-codex:
-  command: /Users/teilomillet/Code/sari/scripts/sari_app_server --preset fake
+runtime:
+  command: "${SARI_BIN:?Set SARI_BIN to /path/to/sari/scripts/sari_app_server} --preset fake"
+  preset: sari/fake
 ```
 
 For real backends, keep the runner as `app_server` and select a Sari runtime
@@ -209,8 +214,9 @@ preset:
 ```yaml
 agent:
   runner: app_server
-codex:
-  command: SARI_OPENCODE_BASE_URL=http://127.0.0.1:41888 /Users/teilomillet/Code/sari/scripts/sari_app_server --preset opencode_lmstudio
+runtime:
+  command: "SARI_OPENCODE_BASE_URL=${SARI_OPENCODE_BASE_URL:-http://127.0.0.1:41888} ${SARI_BIN:?Set SARI_BIN to /path/to/sari/scripts/sari_app_server} --preset opencode_lmstudio"
+  preset: sari/opencode_lmstudio
 ```
 
 Claude Code can run through Sari the same way as Codex, including Entr'acte
@@ -219,8 +225,9 @@ dynamic tools bridged through Sari's local MCP server:
 ```yaml
 agent:
   runner: app_server
-codex:
-  command: /Users/teilomillet/Code/sari/scripts/sari_app_server --preset claude_code
+runtime:
+  command: "${SARI_BIN:?Set SARI_BIN to /path/to/sari/scripts/sari_app_server} --preset claude_code"
+  preset: sari/claude_code
 ```
 
 `headless` remains useful for plain command CLIs, but Sari should use
@@ -275,8 +282,8 @@ approvals, or dynamic tool calls.
   `--skip-template-install` to skip those checks.
 - For path values, `~` is expanded to the home directory.
 - For env-backed path values, use `$VAR`. `workspace.root` resolves `$VAR` before path handling,
-  while `codex.command` stays a shell command string and any `$VAR` expansion there happens in the
-  launched shell.
+  while `runtime.command` and legacy `codex.command` stay shell command strings and any `$VAR`
+  expansion there happens in the launched shell.
 
 ### Tracker Primitives
 
@@ -311,8 +318,9 @@ hooks:
   after_create: |
     : "${SOURCE_REPO_URL:?Set SOURCE_REPO_URL}"
     git clone --depth 1 "$SOURCE_REPO_URL" .
-codex:
+runtime:
   command: "${CODEX_BIN:-codex} --config 'model=\"gpt-5.5\"' app-server"
+  preset: codex/app_server
 ```
 
 For a plain headless CLI, select the headless runner and provide the command that should consume the

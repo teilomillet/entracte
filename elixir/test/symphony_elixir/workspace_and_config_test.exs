@@ -87,7 +87,10 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       assert File.read!(Path.join(second_workspace, "README.md")) == "changed\n"
       assert File.read!(Path.join(second_workspace, "local-progress.txt")) == "in progress\n"
       assert File.read!(Path.join([second_workspace, "deps", "cache.txt"])) == "cached deps\n"
-      assert File.read!(Path.join([second_workspace, "_build", "artifact.txt"])) == "compiled artifact\n"
+
+      assert File.read!(Path.join([second_workspace, "_build", "artifact.txt"])) ==
+               "compiled artifact\n"
+
       assert File.read!(Path.join([second_workspace, "tmp", "scratch.txt"])) == "remove me\n"
     after
       File.rm_rf(workspace_root)
@@ -136,7 +139,9 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
       assert {:ok, canonical_outside_root} = SymphonyElixir.PathSafety.canonicalize(outside_root)
-      assert {:ok, canonical_workspace_root} = SymphonyElixir.PathSafety.canonicalize(workspace_root)
+
+      assert {:ok, canonical_workspace_root} =
+               SymphonyElixir.PathSafety.canonicalize(workspace_root)
 
       assert {:error, {:workspace_outside_root, ^canonical_outside_root, ^canonical_workspace_root}} =
                Workspace.create_for_issue("MT-SYM")
@@ -264,7 +269,9 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     try do
       target_workspace = Path.join(workspace_root, "S_1")
-      untouched_workspace = Path.join(workspace_root, "OTHER-#{System.unique_integer([:positive])}")
+
+      untouched_workspace =
+        Path.join(workspace_root, "OTHER-#{System.unique_integer([:positive])}")
 
       File.mkdir_p!(target_workspace)
       File.mkdir_p!(untouched_workspace)
@@ -441,6 +448,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert Enum.map(issues, & &1.id) == issue_ids
 
     assert_receive {:fetch_issue_states_page, query, %{ids: ^first_batch_ids, first: 50, relationFirst: 50}}
+
     assert query =~ "SymphonyLinearIssuesById"
 
     assert_receive {:fetch_issue_states_page, ^query, %{ids: ^second_batch_ids, first: 5, relationFirst: 50}}
@@ -596,8 +604,16 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     }
 
     refute Orchestrator.should_dispatch_issue_for_test(base_issue, state)
-    assert Orchestrator.should_dispatch_issue_for_test(%{base_issue | labels: ["agent-ready"]}, state)
-    refute Orchestrator.should_dispatch_issue_for_test(%{base_issue | labels: ["agent-ready", "agent-paused"]}, state)
+
+    assert Orchestrator.should_dispatch_issue_for_test(
+             %{base_issue | labels: ["agent-ready"]},
+             state
+           )
+
+    refute Orchestrator.should_dispatch_issue_for_test(
+             %{base_issue | labels: ["agent-ready", "agent-paused"]},
+             state
+           )
   end
 
   test "dispatch guardrail canary keeps backlog idle until ready and stops paused active work" do
@@ -663,11 +679,19 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
           }
         },
         claimed: MapSet.put(base_state.claimed, issue.id),
-        retry_attempts: %{issue.id => %{attempt: 1, due_at_ms: System.monotonic_time(:millisecond), timer_ref: make_ref()}}
+        retry_attempts: %{
+          issue.id => %{
+            attempt: 1,
+            due_at_ms: System.monotonic_time(:millisecond),
+            timer_ref: make_ref()
+          }
+        }
     }
 
     paused_running_issue = %{running_issue | labels: ["agent-ready", "agent-paused"]}
-    stopped_state = Orchestrator.reconcile_issue_states_for_test([paused_running_issue], running_state)
+
+    stopped_state =
+      Orchestrator.reconcile_issue_states_for_test([paused_running_issue], running_state)
 
     refute Map.has_key?(stopped_state.running, issue.id)
     refute MapSet.member?(stopped_state.claimed, issue.id)
@@ -701,7 +725,10 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
              Orchestrator.revalidate_issue_for_dispatch_for_test(stale_issue, fetcher)
 
     assert skipped_issue.identifier == "MT-1005"
-    assert skipped_issue.blocked_by == [%{id: "blocker-3", identifier: "MT-1006", state: "In Progress"}]
+
+    assert skipped_issue.blocked_by == [
+             %{id: "blocker-3", identifier: "MT-1006", state: "In Progress"}
+           ]
   end
 
   test "workspace remove returns error information for missing directory" do
@@ -890,6 +917,12 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert config.agent.max_concurrent_agents == 10
     assert config.headless.command == nil
     assert config.headless.timeout_ms == 3_600_000
+    assert config.runtime.command == nil
+    assert config.runtime.preset == nil
+    assert config.runtime.approval_policy == nil
+    assert config.runtime.thread_sandbox == nil
+    assert config.runtime.turn_sandbox_policy == nil
+    assert Config.app_server_command() == "codex app-server"
     assert config.codex.command == "codex app-server"
 
     assert config.codex.approval_policy == %{
@@ -917,6 +950,9 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert config.codex.turn_timeout_ms == 3_600_000
     assert config.codex.read_timeout_ms == 5_000
     assert config.codex.stall_timeout_ms == 300_000
+    assert Config.app_server_turn_timeout_ms() == 3_600_000
+    assert Config.app_server_read_timeout_ms() == 5_000
+    assert Config.app_server_stall_timeout_ms() == 300_000
 
     write_workflow_file!(Workflow.workflow_file_path(),
       codex_command: "codex --config 'model=\"gpt-5.5\"' app-server"
@@ -980,6 +1016,18 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
     assert message =~ "codex.stall_timeout_ms"
 
+    write_workflow_file!(Workflow.workflow_file_path(), runtime_turn_timeout_ms: "bad")
+    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert message =~ "runtime.turn_timeout_ms"
+
+    write_workflow_file!(Workflow.workflow_file_path(), runtime_read_timeout_ms: "bad")
+    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert message =~ "runtime.read_timeout_ms"
+
+    write_workflow_file!(Workflow.workflow_file_path(), runtime_stall_timeout_ms: "bad")
+    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert message =~ "runtime.stall_timeout_ms"
+
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_active_states: %{todo: true},
       tracker_terminal_states: %{done: true},
@@ -1033,6 +1081,63 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert Config.settings!().codex.command == "codex app-server"
   end
 
+  test "config prefers neutral app-server runtime settings over codex compatibility settings" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      runtime_command: "sari app-server --preset opencode_lmstudio",
+      runtime_preset: "sari/opencode_lmstudio",
+      runtime_approval_policy: "never",
+      runtime_thread_sandbox: "danger-full-access",
+      runtime_turn_sandbox_policy: %{
+        type: "dangerFullAccess",
+        networkAccess: true
+      },
+      runtime_turn_timeout_ms: 120_000,
+      runtime_read_timeout_ms: 1_250,
+      runtime_stall_timeout_ms: 45_000,
+      codex_command: "codex app-server",
+      codex_approval_policy: "on-request",
+      codex_thread_sandbox: "workspace-write",
+      codex_turn_sandbox_policy: %{
+        type: "workspaceWrite",
+        writableRoots: ["codex-only"]
+      },
+      codex_turn_timeout_ms: 3_600_000,
+      codex_read_timeout_ms: 5_000,
+      codex_stall_timeout_ms: 300_000
+    )
+
+    settings = Config.settings!()
+    assert settings.runtime.command == "sari app-server --preset opencode_lmstudio"
+    assert settings.runtime.preset == "sari/opencode_lmstudio"
+    assert settings.codex.command == "codex app-server"
+
+    assert Config.app_server_command() == "sari app-server --preset opencode_lmstudio"
+    assert Config.app_server_turn_timeout_ms() == 120_000
+    assert Config.app_server_read_timeout_ms() == 1_250
+    assert Config.app_server_stall_timeout_ms() == 45_000
+
+    expected_policy = %{"type" => "dangerFullAccess", "networkAccess" => true}
+    assert Config.app_server_turn_sandbox_policy() == expected_policy
+    assert Config.codex_turn_sandbox_policy() == expected_policy
+
+    assert {:ok, runtime_settings} = Config.app_server_runtime_settings()
+
+    assert runtime_settings == %{
+             command: "sari app-server --preset opencode_lmstudio",
+             preset: "sari/opencode_lmstudio",
+             approval_policy: "never",
+             thread_sandbox: "danger-full-access",
+             turn_sandbox_policy: expected_policy,
+             turn_timeout_ms: 120_000,
+             read_timeout_ms: 1_250,
+             stall_timeout_ms: 45_000
+           }
+
+    assert {:ok, compatibility_settings} = Config.codex_runtime_settings()
+    assert compatibility_settings == runtime_settings
+    assert :ok = Config.validate!()
+  end
+
   test "config supports agent runner selection and headless command settings" do
     write_workflow_file!(Workflow.workflow_file_path(),
       agent_runner: "headless",
@@ -1054,8 +1159,10 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     write_workflow_file!(Workflow.workflow_file_path(), agent_runner: "codex_app_server")
     assert Config.agent_runner() == :app_server
 
-    settings_with_missing_codex_command = put_in(Config.settings!().codex.command, nil)
-    assert {:error, :missing_codex_command} = Config.validate_settings_for_test(settings_with_missing_codex_command)
+    settings_with_missing_app_server_command = put_in(Config.settings!().codex.command, nil)
+
+    assert {:error, :missing_app_server_command} =
+             Config.validate_settings_for_test(settings_with_missing_app_server_command)
 
     write_workflow_file!(Workflow.workflow_file_path(), agent_runner: "unsupported")
     assert {:error, {:unsupported_agent_runner, "unsupported"}} = Config.validate!()
@@ -1435,7 +1542,10 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
       read_only_settings = %{
         settings
-        | codex: %{settings.codex | turn_sandbox_policy: %{"type" => "readOnly", "networkAccess" => true}}
+        | codex: %{
+            settings.codex
+            | turn_sandbox_policy: %{"type" => "readOnly", "networkAccess" => true}
+          }
       }
 
       assert {:ok, %{"type" => "readOnly", "networkAccess" => true}} =
@@ -1443,7 +1553,10 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
       future_settings = %{
         settings
-        | codex: %{settings.codex | turn_sandbox_policy: %{"type" => "futureSandbox", "nested" => %{"flag" => true}}}
+        | codex: %{
+            settings.codex
+            | turn_sandbox_policy: %{"type" => "futureSandbox", "nested" => %{"flag" => true}}
+          }
       }
 
       assert {:ok, %{"type" => "futureSandbox", "nested" => %{"flag" => true}}} =

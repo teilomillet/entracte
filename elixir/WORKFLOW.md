@@ -51,8 +51,9 @@ agent:
 headless:
   command: null
   timeout_ms: 3600000
-codex:
+runtime:
   command: "${CODEX_BIN:-codex} --config shell_environment_policy.inherit=all --config 'model=\"gpt-5.5\"' --config model_reasoning_effort=xhigh app-server"
+  preset: codex/app_server
   approval_policy: never
   thread_sandbox: danger-full-access
   turn_sandbox_policy:

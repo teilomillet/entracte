@@ -52,7 +52,9 @@ defmodule SymphonyElixir.Config.Schema do
       field(:project_slugs, {:array, :string}, default: [])
       field(:assignee, :string)
       field(:active_states, {:array, :string}, default: ["Todo", "In Progress"])
+
       field(:terminal_states, {:array, :string}, default: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"])
+
       field(:bootstrap_states, {:array, :string}, default: ["Backlog", "Todo", "In Progress", "Human Review", "Merging", "Rework", "Done"])
     end
 
@@ -191,7 +193,13 @@ defmodule SymphonyElixir.Config.Schema do
       schema
       |> cast(
         attrs,
-        [:runner, :max_concurrent_agents, :max_turns, :max_retry_backoff_ms, :max_concurrent_agents_by_state],
+        [
+          :runner,
+          :max_concurrent_agents,
+          :max_turns,
+          :max_retry_backoff_ms,
+          :max_concurrent_agents_by_state
+        ],
         empty_values: []
       )
       |> validate_number(:max_concurrent_agents, greater_than: 0)
@@ -218,6 +226,46 @@ defmodule SymphonyElixir.Config.Schema do
       schema
       |> cast(attrs, [:command, :timeout_ms], empty_values: [])
       |> validate_number(:timeout_ms, greater_than: 0)
+    end
+  end
+
+  defmodule Runtime do
+    @moduledoc false
+    use Ecto.Schema
+    import Ecto.Changeset
+
+    @primary_key false
+    embedded_schema do
+      field(:command, :string)
+      field(:preset, :string)
+      field(:approval_policy, StringOrMap)
+      field(:thread_sandbox, :string)
+      field(:turn_sandbox_policy, :map)
+      field(:turn_timeout_ms, :integer)
+      field(:read_timeout_ms, :integer)
+      field(:stall_timeout_ms, :integer)
+    end
+
+    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+    def changeset(schema, attrs) do
+      schema
+      |> cast(
+        attrs,
+        [
+          :command,
+          :preset,
+          :approval_policy,
+          :thread_sandbox,
+          :turn_sandbox_policy,
+          :turn_timeout_ms,
+          :read_timeout_ms,
+          :stall_timeout_ms
+        ],
+        empty_values: []
+      )
+      |> validate_number(:turn_timeout_ms, greater_than: 0)
+      |> validate_number(:read_timeout_ms, greater_than: 0)
+      |> validate_number(:stall_timeout_ms, greater_than_or_equal_to: 0)
     end
   end
 
@@ -339,6 +387,7 @@ defmodule SymphonyElixir.Config.Schema do
     embeds_one(:worker, Worker, on_replace: :update, defaults_to_struct: true)
     embeds_one(:gitlab, GitLab, on_replace: :update, defaults_to_struct: true)
     embeds_one(:agent, Agent, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:runtime, Runtime, on_replace: :update, defaults_to_struct: true)
     embeds_one(:headless, Headless, on_replace: :update, defaults_to_struct: true)
     embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
     embeds_one(:hooks, Hooks, on_replace: :update, defaults_to_struct: true)
@@ -364,7 +413,7 @@ defmodule SymphonyElixir.Config.Schema do
 
   @spec resolve_turn_sandbox_policy(%__MODULE__{}, Path.t() | nil) :: map()
   def resolve_turn_sandbox_policy(settings, workspace \\ nil) do
-    case settings.codex.turn_sandbox_policy do
+    case configured_turn_sandbox_policy(settings) do
       %{} = policy ->
         policy
 
@@ -379,7 +428,7 @@ defmodule SymphonyElixir.Config.Schema do
   @spec resolve_runtime_turn_sandbox_policy(%__MODULE__{}, Path.t() | nil, keyword()) ::
           {:ok, map()} | {:error, term()}
   def resolve_runtime_turn_sandbox_policy(settings, workspace \\ nil, opts \\ []) do
-    case settings.codex.turn_sandbox_policy do
+    case configured_turn_sandbox_policy(settings) do
       %{} = policy ->
         {:ok, policy}
 
@@ -434,6 +483,7 @@ defmodule SymphonyElixir.Config.Schema do
     |> cast_embed(:worker, with: &Worker.changeset/2)
     |> cast_embed(:gitlab, with: &GitLab.changeset/2)
     |> cast_embed(:agent, with: &Agent.changeset/2)
+    |> cast_embed(:runtime, with: &Runtime.changeset/2)
     |> cast_embed(:headless, with: &Headless.changeset/2)
     |> cast_embed(:codex, with: &Codex.changeset/2)
     |> cast_embed(:hooks, with: &Hooks.changeset/2)
@@ -442,7 +492,8 @@ defmodule SymphonyElixir.Config.Schema do
   end
 
   defp finalize_settings(settings) do
-    project_slug = resolve_secret_setting(settings.tracker.project_slug, System.get_env("LINEAR_PROJECT_SLUG"))
+    project_slug =
+      resolve_secret_setting(settings.tracker.project_slug, System.get_env("LINEAR_PROJECT_SLUG"))
 
     project_slugs =
       resolve_project_slugs(
@@ -462,7 +513,11 @@ defmodule SymphonyElixir.Config.Schema do
 
     workspace = %{
       settings.workspace
-      | root: resolve_path_value(settings.workspace.root, Path.join(System.tmp_dir!(), "symphony_workspaces"))
+      | root:
+          resolve_path_value(
+            settings.workspace.root,
+            Path.join(System.tmp_dir!(), "symphony_workspaces")
+          )
     }
 
     gitlab = %{
@@ -474,13 +529,26 @@ defmodule SymphonyElixir.Config.Schema do
         project_id: resolve_secret_setting(settings.gitlab.project_id, System.get_env("GITLAB_PROJECT_ID"))
     }
 
+    runtime = %{
+      settings.runtime
+      | approval_policy: normalize_keys(settings.runtime.approval_policy),
+        turn_sandbox_policy: normalize_optional_map(settings.runtime.turn_sandbox_policy)
+    }
+
     codex = %{
       settings.codex
       | approval_policy: normalize_keys(settings.codex.approval_policy),
         turn_sandbox_policy: normalize_optional_map(settings.codex.turn_sandbox_policy)
     }
 
-    %{settings | tracker: tracker, workspace: workspace, gitlab: gitlab, codex: codex}
+    %{
+      settings
+      | tracker: tracker,
+        workspace: workspace,
+        gitlab: gitlab,
+        runtime: runtime,
+        codex: codex
+    }
   end
 
   defp normalize_keys(value) when is_map(value) do
@@ -519,7 +587,12 @@ defmodule SymphonyElixir.Config.Schema do
     end
   end
 
-  defp resolve_project_slugs(configured_project_slugs, env_project_slugs, raw_project_slug, project_slug) do
+  defp resolve_project_slugs(
+         configured_project_slugs,
+         env_project_slugs,
+         raw_project_slug,
+         project_slug
+       ) do
     configured_slugs = normalize_project_slugs(configured_project_slugs)
     env_slugs = normalize_project_slugs(env_project_slugs)
 
@@ -619,6 +692,16 @@ defmodule SymphonyElixir.Config.Schema do
   end
 
   defp normalize_secret_value(_value), do: nil
+
+  defp configured_turn_sandbox_policy(settings) do
+    runtime = Map.get(settings, :runtime) || %{}
+    codex = Map.get(settings, :codex) || %{}
+
+    case Map.get(runtime, :turn_sandbox_policy) do
+      %{} = policy -> policy
+      _ -> Map.get(codex, :turn_sandbox_policy)
+    end
+  end
 
   defp default_turn_sandbox_policy(workspace) do
     %{

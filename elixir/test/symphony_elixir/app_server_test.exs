@@ -146,7 +146,11 @@ defmodule SymphonyElixir.AppServerTest do
       policy_cases = [
         %{"type" => "dangerFullAccess"},
         %{"type" => "externalSandbox", "profile" => "remote-ci"},
-        %{"type" => "workspaceWrite", "writableRoots" => ["relative/path"], "networkAccess" => true},
+        %{
+          "type" => "workspaceWrite",
+          "writableRoots" => ["relative/path"],
+          "networkAccess" => true
+        },
         %{"type" => "futureSandbox", "nested" => %{"flag" => true}}
       ]
 
@@ -183,7 +187,7 @@ defmodule SymphonyElixir.AppServerTest do
     end
   end
 
-  test "app server accepts a Sari-compatible command through codex.command" do
+  test "app server accepts a Sari-compatible command through runtime.command" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -236,8 +240,11 @@ defmodule SymphonyElixir.AppServerTest do
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
         agent_runner: "app_server",
-        codex_command: "#{sari_binary} --backend fake",
-        codex_approval_policy: "never"
+        runtime_command: "#{sari_binary} --backend fake",
+        runtime_preset: "sari/fake",
+        runtime_approval_policy: "never",
+        codex_command: "exit 87",
+        codex_approval_policy: "on-request"
       )
 
       issue = %Issue{
@@ -260,14 +267,23 @@ defmodule SymphonyElixir.AppServerTest do
       assert result.thread_id == "sari-thread-1"
       assert result.turn_id == "sari-turn-1"
 
-      assert_receive {^ref, %{event: :session_started, thread_id: "sari-thread-1", turn_id: "sari-turn-1"}}
+      assert_receive {^ref,
+                      %{
+                        event: :session_started,
+                        thread_id: "sari-thread-1",
+                        turn_id: "sari-turn-1"
+                      }}
 
       assert_receive {^ref,
                       %{
                         event: :notification,
                         payload: %{
                           "method" => "thread/tokenUsage/updated",
-                          "usage" => %{"input_tokens" => 2, "output_tokens" => 3, "total_tokens" => 5}
+                          "usage" => %{
+                            "input_tokens" => 2,
+                            "output_tokens" => 3,
+                            "total_tokens" => 5
+                          }
                         },
                         usage: %{"input_tokens" => 2, "output_tokens" => 3, "total_tokens" => 5}
                       }}
@@ -293,6 +309,7 @@ defmodule SymphonyElixir.AppServerTest do
 
                  payload["method"] == "thread/start" &&
                    get_in(payload, ["params", "cwd"]) == canonical_workspace &&
+                   get_in(payload, ["params", "approvalPolicy"]) == "never" &&
                    is_list(get_in(payload, ["params", "dynamicTools"]))
                else
                  false
@@ -577,7 +594,8 @@ defmodule SymphonyElixir.AppServerTest do
                    |> String.trim_leading("JSON:")
                    |> Jason.decode!()
 
-                 payload["id"] == 99 and get_in(payload, ["result", "decision"]) == "acceptForSession"
+                 payload["id"] == 99 and
+                   get_in(payload, ["result", "decision"]) == "acceptForSession"
                else
                  false
                end
@@ -675,7 +693,12 @@ defmodule SymphonyElixir.AppServerTest do
                    |> Jason.decode!()
 
                  payload["id"] == 110 and
-                   get_in(payload, ["result", "answers", "mcp_tool_call_approval_call-717", "answers"]) ==
+                   get_in(payload, [
+                     "result",
+                     "answers",
+                     "mcp_tool_call_approval_call-717",
+                     "answers"
+                   ]) ==
                      ["Approve this Session"]
                else
                  false
@@ -1256,7 +1279,8 @@ defmodule SymphonyElixir.AppServerTest do
         labels: ["backend"]
       }
 
-      assert {:ok, _result} = AppServer.run(workspace, "Validate newline-delimited buffering", issue)
+      assert {:ok, _result} =
+               AppServer.run(workspace, "Validate newline-delimited buffering", issue)
     after
       File.rm_rf(test_root)
     end
@@ -1402,6 +1426,7 @@ defmodule SymphonyElixir.AppServerTest do
                AppServer.run(workspace, "Capture malformed protocol line", issue, on_message: on_message)
 
       assert_received {:app_server_message, %{event: :malformed, payload: "{\"method\":\"turn/completed\""}}
+
       assert_received {:app_server_message, %{event: :turn_completed}}
     after
       File.rm_rf(test_root)

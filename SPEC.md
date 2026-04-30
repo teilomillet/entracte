@@ -531,7 +531,8 @@ Fields:
 - `runner` (string)
   - Default: `app_server`
   - Supported core values: `app_server`, `headless`
-  - `app_server` uses the Codex app-server integration and the `codex` config object.
+  - `app_server` uses the app-server protocol integration and the neutral `runtime` config object,
+    falling back to legacy `codex` fields when neutral fields are omitted.
   - `headless` runs a configured command without an app-server protocol and uses the `headless`
     config object.
 - `max_concurrent_agents` (integer)
@@ -549,7 +550,26 @@ Fields:
   - State keys are normalized (`lowercase`) for lookup.
   - Invalid entries (non-positive or non-numeric) are ignored.
 
-#### 5.3.7 `headless` (object)
+#### 5.3.7 `runtime` (object)
+
+Fields:
+
+- `command` (string shell command)
+  - Preferred command slot when `agent.runner=app_server`.
+  - If omitted, implementations SHOULD fall back to `codex.command` for compatibility.
+  - The runtime launches this command via `bash -lc` in the workspace directory.
+  - The launched process MUST speak a compatible app-server protocol over stdio.
+- `preset` (string or null)
+  - Optional operator-readable runtime/facade preset name, for example `sari/opencode_lmstudio`.
+  - Used for observability/config clarity; backend selection semantics belong to the facade command.
+- `approval_policy`, `thread_sandbox`, `turn_sandbox_policy`
+  - Preferred neutral pass-through slots for app-server policy payloads.
+  - If omitted, implementations SHOULD fall back to the corresponding `codex.*` compatibility field.
+- `turn_timeout_ms`, `read_timeout_ms`, `stall_timeout_ms` (integer)
+  - Preferred neutral timeout slots for the app-server runner.
+  - If omitted, implementations SHOULD fall back to the corresponding `codex.*` compatibility field.
+
+#### 5.3.8 `headless` (object)
 
 Fields:
 
@@ -563,7 +583,7 @@ Fields:
   - Default: `3600000` (1 hour)
   - Bounds a single headless command attempt.
 
-#### 5.3.8 `codex` (object)
+#### 5.3.9 `codex` (object)
 
 Fields:
 
@@ -707,7 +727,7 @@ Validation checks:
 - `tracker.api_key` is present after `$` resolution.
 - `tracker.project_slug` or `tracker.project_slugs` is present when REQUIRED by the selected tracker kind.
 - `dispatch.ready_label` and `dispatch.paused_label` are present if dispatch labels are implemented.
-- `codex.command` is present and non-empty when `agent.runner=app_server`.
+- `runtime.command` or legacy `codex.command` is present and non-empty when `agent.runner=app_server`.
 - `headless.command` is present and non-empty when `agent.runner=headless`.
 
 ### 6.4 Core Config Fields Summary (Cheat Sheet)
@@ -739,9 +759,17 @@ not require recognizing or validating extension fields unless that extension is 
 - `agent.max_turns`: integer, default `20`
 - `agent.max_retry_backoff_ms`: integer, default `300000` (5m)
 - `agent.max_concurrent_agents_by_state`: map of positive integers, default `{}`
+- `runtime.command`: shell command string, preferred when `agent.runner=app_server`
+- `runtime.preset`: string or null, default `null`
+- `runtime.approval_policy`: app-server approval value, falls back to `codex.approval_policy`
+- `runtime.thread_sandbox`: app-server thread sandbox value, falls back to `codex.thread_sandbox`
+- `runtime.turn_sandbox_policy`: app-server turn sandbox value, falls back to `codex.turn_sandbox_policy`
+- `runtime.turn_timeout_ms`: integer, falls back to `codex.turn_timeout_ms`
+- `runtime.read_timeout_ms`: integer, falls back to `codex.read_timeout_ms`
+- `runtime.stall_timeout_ms`: integer, falls back to `codex.stall_timeout_ms`
 - `headless.command`: shell command string, required when `agent.runner=headless`
 - `headless.timeout_ms`: integer, default `3600000`
-- `codex.command`: shell command string, default `codex app-server`
+- `codex.command`: legacy shell command fallback, default `codex app-server`
 - `codex.approval_policy`: Codex `AskForApproval` value, default implementation-defined
 - `codex.thread_sandbox`: Codex `SandboxMode` value, default implementation-defined
 - `codex.turn_sandbox_policy`: Codex `SandboxPolicy` value, default implementation-defined
@@ -943,7 +971,7 @@ Part A: Stall detection
 - For each running issue, compute `elapsed_ms` since:
   - `last_codex_timestamp` if any event has been seen, else
   - `started_at`
-- If `elapsed_ms > codex.stall_timeout_ms`, terminate the worker and queue a retry.
+- If `elapsed_ms > runtime.stall_timeout_ms` (or legacy `codex.stall_timeout_ms` fallback), terminate the worker and queue a retry.
 - If `stall_timeout_ms <= 0`, skip stall detection entirely.
 
 Part B: Tracker state refresh
@@ -1086,13 +1114,13 @@ Protocol source of truth:
 Subprocess launch parameters:
 
 - Runner selection: `agent.runner`
-- App-server command: `codex.command`
+- App-server command: `runtime.command`, falling back to legacy `codex.command`
 
 Compatibility note: `app_server` is named after the existing Codex integration,
 but the selected command MAY be a backend-neutral facade such as Sari if it
 speaks the same bounded JSON-RPC stdio behavior consumed by Entr'acte. In that
-case, `codex.command` is the compatibility command slot, while backend choice
-belongs to the facade configuration.
+case, `runtime.command` is the preferred neutral command slot, while backend
+choice belongs to the facade configuration.
 - Headless command: `headless.command`
 - Invocation: `bash -lc <command for selected runner>`
 - Working directory: workspace path
@@ -1304,9 +1332,9 @@ User-input-required policy:
 
 Timeouts:
 
-- `codex.read_timeout_ms`: request/response timeout during startup and sync requests
-- `codex.turn_timeout_ms`: total turn stream timeout
-- `codex.stall_timeout_ms`: enforced by orchestrator based on event inactivity
+- `runtime.read_timeout_ms` or legacy `codex.read_timeout_ms`: request/response timeout during startup and sync requests
+- `runtime.turn_timeout_ms` or legacy `codex.turn_timeout_ms`: total turn stream timeout
+- `runtime.stall_timeout_ms` or legacy `codex.stall_timeout_ms`: enforced by orchestrator based on event inactivity
 
 Error mapping (RECOMMENDED normalized categories):
 
@@ -2207,7 +2235,7 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`. Bulle
 - `tracker.api_key` works (including `$VAR` indirection)
 - `$VAR` resolution works for tracker API key and path values
 - `~` path expansion works
-- `codex.command` is preserved as a shell command string
+- `runtime.command` and legacy `codex.command` are preserved as shell command strings
 - Per-state concurrency override map normalizes state names and ignores invalid values
 - Prompt template renders `issue` and `attempt`
 - Prompt rendering fails on unknown variables (strict mode)
@@ -2260,7 +2288,7 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`. Bulle
 
 ### 17.5 Coding-Agent App-Server Client
 
-- Launch command uses workspace cwd and invokes `bash -lc <codex.command>`
+- Launch command uses workspace cwd and invokes `bash -lc <runtime.command>` with legacy `codex.command` fallback
 - Session startup follows the targeted Codex app-server protocol.
 - Client identity/capability payloads are valid when the targeted Codex app-server protocol requires
   them.
@@ -2348,7 +2376,7 @@ Use the same validation profiles as Section 17:
 - Workspace lifecycle hooks (`after_create`, `before_run`, `after_run`, `before_remove`)
 - Hook timeout config (`hooks.timeout_ms`, default `60000`)
 - Coding-agent app-server subprocess client with JSON line protocol
-- Codex launch command config (`codex.command`, default `codex app-server`)
+- Neutral app-server launch command config (`runtime.command`) with legacy `codex.command` fallback
 - Strict prompt rendering with `issue` and `attempt` variables
 - Exponential retry queue with continuation retries after normal exit
 - Configurable retry backoff cap (`agent.max_retry_backoff_ms`, default 5m)

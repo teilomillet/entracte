@@ -23,7 +23,12 @@ defmodule SymphonyElixir.TestSupport do
       alias SymphonyElixir.Workspace
 
       import SymphonyElixir.TestSupport,
-        only: [write_workflow_file!: 1, write_workflow_file!: 2, restore_env: 2, stop_default_http_server: 0]
+        only: [
+          write_workflow_file!: 1,
+          write_workflow_file!: 2,
+          restore_env: 2,
+          stop_default_http_server: 0
+        ]
 
       setup do
         workflow_root =
@@ -36,7 +41,10 @@ defmodule SymphonyElixir.TestSupport do
         workflow_file = Path.join(workflow_root, "WORKFLOW.md")
         write_workflow_file!(workflow_file)
         Workflow.set_workflow_file_path(workflow_file)
-        if Process.whereis(SymphonyElixir.WorkflowStore), do: SymphonyElixir.WorkflowStore.force_reload()
+
+        if Process.whereis(SymphonyElixir.WorkflowStore),
+          do: SymphonyElixir.WorkflowStore.force_reload()
+
         stop_default_http_server()
 
         on_exit(fn ->
@@ -101,7 +109,15 @@ defmodule SymphonyElixir.TestSupport do
           tracker_assignee: nil,
           tracker_active_states: ["Todo", "In Progress"],
           tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"],
-          tracker_bootstrap_states: ["Backlog", "Todo", "In Progress", "Human Review", "Merging", "Rework", "Done"],
+          tracker_bootstrap_states: [
+            "Backlog",
+            "Todo",
+            "In Progress",
+            "Human Review",
+            "Merging",
+            "Rework",
+            "Done"
+          ],
           dispatch_require_ready_label: true,
           dispatch_ready_label: "agent-ready",
           dispatch_paused_label: "agent-paused",
@@ -117,10 +133,20 @@ defmodule SymphonyElixir.TestSupport do
           max_turns: 20,
           max_retry_backoff_ms: 300_000,
           max_concurrent_agents_by_state: %{},
+          runtime_command: nil,
+          runtime_preset: nil,
+          runtime_approval_policy: nil,
+          runtime_thread_sandbox: nil,
+          runtime_turn_sandbox_policy: nil,
+          runtime_turn_timeout_ms: nil,
+          runtime_read_timeout_ms: nil,
+          runtime_stall_timeout_ms: nil,
           headless_command: nil,
           headless_timeout_ms: 3_600_000,
           codex_command: "codex app-server",
-          codex_approval_policy: %{reject: %{sandbox_approval: true, rules: true, mcp_elicitations: true}},
+          codex_approval_policy: %{
+            reject: %{sandbox_approval: true, rules: true, mcp_elicitations: true}
+          },
           codex_thread_sandbox: "workspace-write",
           codex_turn_sandbox_policy: nil,
           codex_turn_timeout_ms: 3_600_000,
@@ -156,7 +182,10 @@ defmodule SymphonyElixir.TestSupport do
     poll_interval_ms = Keyword.get(config, :poll_interval_ms)
     workspace_root = Keyword.get(config, :workspace_root)
     worker_ssh_hosts = Keyword.get(config, :worker_ssh_hosts)
-    worker_max_concurrent_agents_per_host = Keyword.get(config, :worker_max_concurrent_agents_per_host)
+
+    worker_max_concurrent_agents_per_host =
+      Keyword.get(config, :worker_max_concurrent_agents_per_host)
+
     gitlab_endpoint = Keyword.get(config, :gitlab_endpoint)
     gitlab_api_token = Keyword.get(config, :gitlab_api_token)
     gitlab_project_id = Keyword.get(config, :gitlab_project_id)
@@ -165,6 +194,14 @@ defmodule SymphonyElixir.TestSupport do
     max_turns = Keyword.get(config, :max_turns)
     max_retry_backoff_ms = Keyword.get(config, :max_retry_backoff_ms)
     max_concurrent_agents_by_state = Keyword.get(config, :max_concurrent_agents_by_state)
+    runtime_command = Keyword.get(config, :runtime_command)
+    runtime_preset = Keyword.get(config, :runtime_preset)
+    runtime_approval_policy = Keyword.get(config, :runtime_approval_policy)
+    runtime_thread_sandbox = Keyword.get(config, :runtime_thread_sandbox)
+    runtime_turn_sandbox_policy = Keyword.get(config, :runtime_turn_sandbox_policy)
+    runtime_turn_timeout_ms = Keyword.get(config, :runtime_turn_timeout_ms)
+    runtime_read_timeout_ms = Keyword.get(config, :runtime_read_timeout_ms)
+    runtime_stall_timeout_ms = Keyword.get(config, :runtime_stall_timeout_ms)
     headless_command = Keyword.get(config, :headless_command)
     headless_timeout_ms = Keyword.get(config, :headless_timeout_ms)
     codex_command = Keyword.get(config, :codex_command)
@@ -218,6 +255,15 @@ defmodule SymphonyElixir.TestSupport do
         "  max_turns: #{yaml_value(max_turns)}",
         "  max_retry_backoff_ms: #{yaml_value(max_retry_backoff_ms)}",
         "  max_concurrent_agents_by_state: #{yaml_value(max_concurrent_agents_by_state)}",
+        "runtime:",
+        "  command: #{yaml_value(runtime_command)}",
+        "  preset: #{yaml_value(runtime_preset)}",
+        "  approval_policy: #{yaml_value(runtime_approval_policy)}",
+        "  thread_sandbox: #{yaml_value(runtime_thread_sandbox)}",
+        "  turn_sandbox_policy: #{yaml_value(runtime_turn_sandbox_policy)}",
+        "  turn_timeout_ms: #{yaml_value(runtime_turn_timeout_ms)}",
+        "  read_timeout_ms: #{yaml_value(runtime_read_timeout_ms)}",
+        "  stall_timeout_ms: #{yaml_value(runtime_stall_timeout_ms)}",
         "headless:",
         "  command: #{yaml_value(headless_command)}",
         "  timeout_ms: #{yaml_value(headless_timeout_ms)}",
@@ -229,8 +275,18 @@ defmodule SymphonyElixir.TestSupport do
         "  turn_timeout_ms: #{yaml_value(codex_turn_timeout_ms)}",
         "  read_timeout_ms: #{yaml_value(codex_read_timeout_ms)}",
         "  stall_timeout_ms: #{yaml_value(codex_stall_timeout_ms)}",
-        hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, hook_timeout_ms),
-        observability_yaml(observability_enabled, observability_refresh_ms, observability_render_interval_ms),
+        hooks_yaml(
+          hook_after_create,
+          hook_before_run,
+          hook_after_run,
+          hook_before_remove,
+          hook_timeout_ms
+        ),
+        observability_yaml(
+          observability_enabled,
+          observability_refresh_ms,
+          observability_render_interval_ms
+        ),
         server_yaml(server_port, server_host),
         "---",
         prompt
@@ -262,9 +318,16 @@ defmodule SymphonyElixir.TestSupport do
 
   defp yaml_value(value), do: yaml_value(to_string(value))
 
-  defp hooks_yaml(nil, nil, nil, nil, timeout_ms), do: "hooks:\n  timeout_ms: #{yaml_value(timeout_ms)}"
+  defp hooks_yaml(nil, nil, nil, nil, timeout_ms),
+    do: "hooks:\n  timeout_ms: #{yaml_value(timeout_ms)}"
 
-  defp hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, timeout_ms) do
+  defp hooks_yaml(
+         hook_after_create,
+         hook_before_run,
+         hook_after_run,
+         hook_before_remove,
+         timeout_ms
+       ) do
     [
       "hooks:",
       "  timeout_ms: #{yaml_value(timeout_ms)}",

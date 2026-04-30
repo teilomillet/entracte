@@ -22,11 +22,18 @@ defmodule SymphonyElixir.Config do
 
   @default_agent_runner "app_server"
 
-  @type codex_runtime_settings :: %{
+  @type app_server_runtime_settings :: %{
+          command: String.t(),
+          preset: String.t() | nil,
           approval_policy: String.t() | map(),
           thread_sandbox: String.t(),
-          turn_sandbox_policy: map()
+          turn_sandbox_policy: map(),
+          turn_timeout_ms: pos_integer(),
+          read_timeout_ms: pos_integer(),
+          stall_timeout_ms: non_neg_integer()
         }
+
+  @type codex_runtime_settings :: app_server_runtime_settings()
 
   @type agent_runner :: :app_server | :headless | :unsupported
 
@@ -70,16 +77,19 @@ defmodule SymphonyElixir.Config do
 
   def max_concurrent_agents_for_state(_state_name), do: settings!().agent.max_concurrent_agents
 
-  @spec codex_turn_sandbox_policy(Path.t() | nil) :: map()
-  def codex_turn_sandbox_policy(workspace \\ nil) do
+  @spec app_server_turn_sandbox_policy(Path.t() | nil) :: map()
+  def app_server_turn_sandbox_policy(workspace \\ nil) do
     case Schema.resolve_runtime_turn_sandbox_policy(settings!(), workspace) do
       {:ok, policy} ->
         policy
 
       {:error, reason} ->
-        raise ArgumentError, message: "Invalid codex turn sandbox policy: #{inspect(reason)}"
+        raise ArgumentError, message: "Invalid app-server turn sandbox policy: #{inspect(reason)}"
     end
   end
+
+  @spec codex_turn_sandbox_policy(Path.t() | nil) :: map()
+  def codex_turn_sandbox_policy(workspace \\ nil), do: app_server_turn_sandbox_policy(workspace)
 
   @spec workflow_prompt() :: String.t()
   def workflow_prompt do
@@ -118,20 +128,53 @@ defmodule SymphonyElixir.Config do
     |> normalize_agent_runner()
   end
 
+  @spec app_server_command() :: String.t()
+  def app_server_command do
+    settings!()
+    |> effective_app_server_command()
+    |> case do
+      {:ok, command} ->
+        command
+
+      {:error, reason} ->
+        raise ArgumentError, message: "Invalid app-server command: #{inspect(reason)}"
+    end
+  end
+
+  @spec app_server_turn_timeout_ms() :: pos_integer()
+  def app_server_turn_timeout_ms, do: effective_runtime_value(settings!(), :turn_timeout_ms)
+
+  @spec app_server_read_timeout_ms() :: pos_integer()
+  def app_server_read_timeout_ms, do: effective_runtime_value(settings!(), :read_timeout_ms)
+
+  @spec app_server_stall_timeout_ms() :: non_neg_integer()
+  def app_server_stall_timeout_ms, do: effective_runtime_value(settings!(), :stall_timeout_ms)
+
+  @spec app_server_runtime_settings(Path.t() | nil, keyword()) ::
+          {:ok, app_server_runtime_settings()} | {:error, term()}
+  def app_server_runtime_settings(workspace \\ nil, opts \\ []) do
+    with {:ok, settings} <- settings(),
+         {:ok, command} <- effective_app_server_command(settings),
+         {:ok, turn_sandbox_policy} <-
+           Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts) do
+      {:ok,
+       %{
+         command: command,
+         preset: effective_runtime_value(settings, :preset),
+         approval_policy: effective_runtime_value(settings, :approval_policy),
+         thread_sandbox: effective_runtime_value(settings, :thread_sandbox),
+         turn_sandbox_policy: turn_sandbox_policy,
+         turn_timeout_ms: effective_runtime_value(settings, :turn_timeout_ms),
+         read_timeout_ms: effective_runtime_value(settings, :read_timeout_ms),
+         stall_timeout_ms: effective_runtime_value(settings, :stall_timeout_ms)
+       }}
+    end
+  end
+
   @spec codex_runtime_settings(Path.t() | nil, keyword()) ::
           {:ok, codex_runtime_settings()} | {:error, term()}
   def codex_runtime_settings(workspace \\ nil, opts \\ []) do
-    with {:ok, settings} <- settings() do
-      with {:ok, turn_sandbox_policy} <-
-             Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts) do
-        {:ok,
-         %{
-           approval_policy: settings.codex.approval_policy,
-           thread_sandbox: settings.codex.thread_sandbox,
-           turn_sandbox_policy: turn_sandbox_policy
-         }}
-      end
-    end
+    app_server_runtime_settings(workspace, opts)
   end
 
   @spec headless_runtime_settings() :: {:ok, headless_runtime_settings()} | {:error, term()}
@@ -192,9 +235,9 @@ defmodule SymphonyElixir.Config do
   end
 
   defp validate_app_server_runtime_settings(settings) do
-    case settings.codex.command do
-      command when is_binary(command) and command != "" -> :ok
-      _command -> {:error, :missing_codex_command}
+    case effective_app_server_command(settings) do
+      {:ok, _command} -> :ok
+      {:error, _reason} -> {:error, :missing_app_server_command}
     end
   end
 
@@ -205,6 +248,23 @@ defmodule SymphonyElixir.Config do
 
       {:error, _reason} = error ->
         error
+    end
+  end
+
+  defp effective_app_server_command(settings) do
+    case effective_runtime_value(settings, :command) do
+      command when is_binary(command) and command != "" -> {:ok, command}
+      _command -> {:error, :missing_app_server_command}
+    end
+  end
+
+  defp effective_runtime_value(settings, field) do
+    runtime = Map.get(settings, :runtime) || %{}
+    codex = Map.get(settings, :codex) || %{}
+
+    case Map.get(runtime, field) do
+      nil -> Map.get(codex, field)
+      value -> value
     end
   end
 
