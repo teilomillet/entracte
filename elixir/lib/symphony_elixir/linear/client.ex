@@ -580,6 +580,16 @@ defmodule SymphonyElixir.Linear.Client do
     }
   end
 
+  defp normalize_project(%{"id" => id} = project) when is_binary(id) and id != "" do
+    %Project{
+      id: id,
+      name: project["name"],
+      slug: nil,
+      url: project["url"],
+      metadata: %{provider: :linear, raw: project}
+    }
+  end
+
   defp normalize_project(_project), do: nil
 
   defp assignee_field(%{} = assignee, field) when is_binary(field), do: assignee[field]
