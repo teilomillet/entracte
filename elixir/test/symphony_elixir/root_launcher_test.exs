@@ -1,6 +1,19 @@
 defmodule EntrActe.RootLauncherTest do
   use ExUnit.Case, async: false
 
+  test "setup wrapper enables the global launcher by default" do
+    setup_script = Path.join(repo_root(), "setup")
+
+    assert File.regular?(setup_script)
+    assert File.read!(setup_script) =~ "--install-launcher"
+
+    assert {output, 0} =
+             System.cmd(setup_script, ["--help"], stderr_to_stdout: true)
+
+    assert output =~ "usage: ./setup"
+    assert output =~ "Guided first-time setup"
+  end
+
   test "setup command runs the toolchain setup without requiring mix on PATH" do
     tmp_dir = Path.join(System.tmp_dir!(), "entracte-root-launcher-test-#{System.unique_integer([:positive])}")
     File.rm_rf!(tmp_dir)

@@ -39,9 +39,13 @@ For this Entr'acte checkout, the guided local path is:
 ```bash
 git clone <this-repo-url>
 cd entracte
-./entracte setup
-./entracte start
+./setup
+entracte start
 ```
+
+`./setup` installs a local `entracte` command when possible. If your shell cannot
+find `entracte` afterward, run `./entracte start` from this checkout or add the
+printed bin directory to your `PATH`.
 
 ---
 

@@ -64,19 +64,21 @@ For a first install after cloning, use the guided setup:
 ```bash
 git clone <this-repo-url>
 cd entracte
-./entracte setup
-./entracte start
+./setup
+entracte start
 ```
 
-`./entracte setup` installs the Elixir toolchain through `mise` when available, builds the local
-runner, creates `elixir/.env`, asks for the Linear API key and project, asks whether to use Codex or
-Sari/Claude Code, and then runs bootstrap. If Sari is cloned next to Entr'acte or under
-`~/Code/sari`, setup auto-detects `scripts/sari_app_server`.
+`./setup` installs the Elixir toolchain through `mise` when available, builds the local runner,
+creates `elixir/.env`, asks for the Linear API key and project, asks whether to use Codex or
+Sari/Claude Code, runs bootstrap, and installs a local `entracte` command when possible. If Sari is
+cloned next to Entr'acte or under `~/Code/sari`, setup auto-detects `scripts/sari_app_server`.
+If your shell cannot find `entracte` afterward, run `./entracte start` from this checkout or add the
+printed bin directory to your `PATH`.
 
 Non-interactive example for Sari/Claude Code:
 
 ```bash
-./entracte setup \
+./setup \
   --runtime sari/claude_code \
   --sari-bin /path/to/sari/scripts/sari_app_server \
   --project <linear-project-slug-or-url>

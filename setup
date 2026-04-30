@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+
+case "${1:-}" in
+  -h|--help|help)
+    cat >&2 <<'EOF'
+usage: ./setup [options]
+
+Guided first-time setup after cloning the repo.
+
+Options:
+  --runtime codex/app_server|sari/claude_code
+  --sari-bin /path/to/sari/scripts/sari_app_server
+  --project <linear-project-slug-or-url>
+  --linear-api-key <key>
+  --skip-bootstrap
+  --yes
+EOF
+    exit 0
+    ;;
+esac
+
+exec "$repo_root/entracte" setup --install-launcher "$@"
