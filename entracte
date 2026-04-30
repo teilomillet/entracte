@@ -5,11 +5,329 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 elixir_dir="${ENTRACTE_HOME:-$repo_root/elixir}"
 
 usage() {
-  echo "usage: ./entracte [start|check|bootstrap|install] [args...]" >&2
+  echo "usage: ./entracte [setup|start|check|bootstrap|install] [args...]" >&2
+}
+
+die() {
+  echo "entracte: $*" >&2
+  exit 1
+}
+
+has_mise() {
+  command -v mise >/dev/null 2>&1
+}
+
+has_mix() {
+  command -v mix >/dev/null 2>&1
+}
+
+run_mix() {
+  cd "$elixir_dir"
+
+  if has_mise; then
+    mise exec -- mix "$@"
+    return
+  fi
+
+  if has_mix; then
+    mix "$@"
+    return
+  fi
+
+  die "Elixir/Mix is missing. Install mise first, then rerun ./entracte setup: https://mise.jdx.dev/getting-started.html"
+}
+
+ensure_toolchain() {
+  cd "$elixir_dir"
+
+  if has_mise; then
+    mise trust
+    mise install
+    mise exec -- mix setup
+    mise exec -- mix build
+    return
+  fi
+
+  if has_mix; then
+    mix setup
+    mix build
+    return
+  fi
+
+  die "Elixir/Mix is missing. Install mise first, then rerun ./entracte setup: https://mise.jdx.dev/getting-started.html"
+}
+
+env_file_value() {
+  local key="$1"
+  local file="$2"
+
+  if [ ! -f "$file" ]; then
+    return 0
+  fi
+
+  awk -v key="$key" '
+    $0 ~ "^[[:space:]]*(export[[:space:]]+)?" key "[[:space:]]*=" {
+      value = $0
+      sub(/^[^=]*=/, "", value)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      gsub(/^"|"$/, "", value)
+      gsub(/^'\''|'\''$/, "", value)
+      result = value
+    }
+    END { print result }
+  ' "$file"
+}
+
+env_has_value() {
+  local key="$1"
+  local file="$2"
+  [ -n "$(env_file_value "$key" "$file")" ]
+}
+
+quote_env_value() {
+  local value="$1"
+
+  if [[ "$value" =~ ^[^[:space:]#\"\'\\]+$ ]]; then
+    printf '%s' "$value"
+  else
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    printf '"%s"' "$value"
+  fi
+}
+
+append_env_assignment() {
+  local key="$1"
+  local value="$2"
+  local file="$3"
+
+  {
+    printf '\n# Added by ./entracte setup\n'
+    printf '%s=' "$key"
+    quote_env_value "$value"
+    printf '\n'
+  } >> "$file"
+}
+
+ensure_env_file() {
+  local env_file="$elixir_dir/.env"
+  local example_file="$elixir_dir/.env.example"
+
+  if [ -f "$env_file" ]; then
+    return
+  fi
+
+  if [ -f "$example_file" ]; then
+    cp "$example_file" "$env_file"
+    echo "Created elixir/.env from elixir/.env.example"
+  else
+    : > "$env_file"
+    echo "Created elixir/.env"
+  fi
+}
+
+normalize_project_slug() {
+  local value="$1"
+  value="${value%/}"
+
+  if [[ "$value" == *"/project/"* ]]; then
+    value="${value#*"/project/"}"
+    value="${value%%/*}"
+  fi
+
+  printf '%s' "$value"
+}
+
+detect_sari_bin() {
+  local candidates=(
+    "$repo_root/../sari/scripts/sari_app_server"
+    "$HOME/Code/sari/scripts/sari_app_server"
+  )
+
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    if [ -f "$candidate" ]; then
+      printf '%s' "$candidate"
+      return
+    fi
+  done
+}
+
+setup_interactive() {
+  [ -t 0 ] && [ "${ENTRACTE_SETUP_YES:-0}" != "1" ]
+}
+
+setup_command() {
+  local runtime=""
+  local sari_bin=""
+  local project=""
+  local linear_api_key=""
+  local skip_bootstrap=0
+  local install_launcher=0
+  local runtime_arg=0
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --runtime)
+        runtime="${2:-}"
+        runtime_arg=1
+        shift 2
+        ;;
+      --sari-bin)
+        sari_bin="${2:-}"
+        shift 2
+        ;;
+      --project)
+        project="${2:-}"
+        shift 2
+        ;;
+      --linear-api-key)
+        linear_api_key="${2:-}"
+        shift 2
+        ;;
+      --skip-bootstrap)
+        skip_bootstrap=1
+        shift
+        ;;
+      --install-launcher)
+        install_launcher=1
+        shift
+        ;;
+      --yes|-y)
+        ENTRACTE_SETUP_YES=1
+        shift
+        ;;
+      -h|--help|help)
+        cat >&2 <<'EOF'
+usage: ./entracte setup [options]
+
+Guided first-time setup after cloning the repo.
+
+Options:
+  --runtime codex/app_server|sari/claude_code
+  --sari-bin /path/to/sari/scripts/sari_app_server
+  --project <linear-project-slug-or-url>
+  --linear-api-key <key>
+  --skip-bootstrap
+  --install-launcher
+  --yes
+EOF
+        exit 0
+        ;;
+      *)
+        die "unknown setup option: $1"
+        ;;
+    esac
+  done
+
+  echo "Setting up Entr'acte from this checkout..."
+  ensure_toolchain
+  ensure_env_file
+
+  local env_file="$elixir_dir/.env"
+
+  if [ -n "$linear_api_key" ]; then
+    append_env_assignment "LINEAR_API_KEY" "$linear_api_key" "$env_file"
+  elif ! env_has_value "LINEAR_API_KEY" "$env_file" && setup_interactive; then
+    printf 'Linear API key (input hidden, leave blank to skip): '
+    IFS= read -r -s linear_api_key
+    printf '\n'
+
+    if [ -n "$linear_api_key" ]; then
+      append_env_assignment "LINEAR_API_KEY" "$linear_api_key" "$env_file"
+    fi
+  fi
+
+  if [ -z "$project" ] && setup_interactive; then
+    printf 'Linear project URL or slug (leave blank to auto-detect): '
+    IFS= read -r project
+  fi
+
+  if [ -n "$project" ]; then
+    project="$(normalize_project_slug "$project")"
+  fi
+
+  local runtime_default=""
+
+  if [ -z "$runtime" ]; then
+    runtime_default="$(env_file_value "ENTRACTE_RUNTIME_PRESET" "$env_file")"
+  fi
+
+  if [ "$runtime_arg" = "0" ] && setup_interactive; then
+    printf 'Agent runtime: [1] Codex  [2] Sari / Claude Code (default %s): ' "${runtime_default:-codex/app_server}"
+    local runtime_choice=""
+    IFS= read -r runtime_choice
+
+    case "$runtime_choice" in
+      2)
+        runtime="sari/claude_code"
+        ;;
+      "")
+        runtime="${runtime_default:-codex/app_server}"
+        ;;
+      *)
+        runtime="codex/app_server"
+        ;;
+    esac
+  elif [ -z "$runtime" ]; then
+    runtime="${runtime_default:-codex/app_server}"
+  fi
+
+  runtime="${runtime:-codex/app_server}"
+
+  if [[ "$runtime" == sari* || "$runtime" == claude* ]] && [ -z "$sari_bin" ]; then
+    sari_bin="$(env_file_value "SARI_BIN" "$env_file")"
+  fi
+
+  if [[ "$runtime" == sari* || "$runtime" == claude* ]] && [ -z "$sari_bin" ]; then
+    sari_bin="$(detect_sari_bin)"
+  fi
+
+  if [[ "$runtime" == sari* || "$runtime" == claude* ]] && [ -z "$sari_bin" ] && setup_interactive; then
+    printf 'Path to sari/scripts/sari_app_server: '
+    IFS= read -r sari_bin
+  fi
+
+  if [ "$skip_bootstrap" = "0" ]; then
+    if ! env_has_value "LINEAR_API_KEY" "$env_file"; then
+      die "LINEAR_API_KEY is missing. Rerun ./entracte setup and paste it, or add it to elixir/.env."
+    fi
+
+    local bootstrap_args=(symphony.bootstrap --runtime "$runtime")
+
+    if [ -n "$project" ]; then
+      bootstrap_args+=(--project "$project")
+    fi
+
+    if [[ "$runtime" == sari* || "$runtime" == claude* ]]; then
+      if [ -z "$sari_bin" ]; then
+        die "Sari runtime needs --sari-bin /path/to/sari/scripts/sari_app_server."
+      fi
+
+      bootstrap_args+=(--sari-bin "$sari_bin")
+    fi
+
+    run_mix "${bootstrap_args[@]}"
+  else
+    echo "Skipped tracker bootstrap."
+  fi
+
+  if [ "$install_launcher" = "1" ]; then
+    run_mix entracte.install --force
+  fi
+
+  echo
+  echo "Setup finished. Start the runner with:"
+  echo "  ./entracte start"
 }
 
 mode="${1:-start}"
 case "$mode" in
+  setup)
+    shift || true
+    setup_command "$@"
+    exit 0
+    ;;
   start)
     shift || true
     task="symphony.start"

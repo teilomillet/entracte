@@ -58,6 +58,31 @@ defmodule Mix.Tasks.Entracte.InstallTest do
     assert captured_pwd(tmp_dir) == physical_path(home)
   end
 
+  test "installed launcher delegates setup to the root launcher", %{tmp_dir: tmp_dir} do
+    launcher = install_launcher!(tmp_dir)
+    home = Path.join([tmp_dir, "checkout", "elixir"])
+    root_launcher = Path.join([tmp_dir, "checkout", "entracte"])
+    File.mkdir_p!(home)
+
+    File.write!(root_launcher, """
+    #!/usr/bin/env bash
+    set -euo pipefail
+    printf '%s\\n' "$@" > "$CAPTURE_ARGS"
+    printf '%s\\n' "$PWD" > "$CAPTURE_PWD"
+    """)
+
+    File.chmod!(root_launcher, 0o755)
+
+    {output, status} =
+      System.cmd(launcher, ["setup", "--yes", "--skip-bootstrap"],
+        env: launcher_env("", tmp_dir, home),
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, output
+    assert captured_args(tmp_dir) == ["setup", "--yes", "--skip-bootstrap"]
+  end
+
   test "installed launcher keeps profile-file compatibility", %{tmp_dir: tmp_dir} do
     launcher = install_launcher!(tmp_dir)
     home = Path.join(tmp_dir, "checkout")

@@ -13,6 +13,7 @@ defmodule Mix.Tasks.Entracte.Install do
   The generated launcher keeps this checkout as the runtime source:
 
       entracte
+      entracte setup
       entracte start
       entracte check
       entracte bootstrap
@@ -104,6 +105,15 @@ defmodule Mix.Tasks.Entracte.Install do
     ENTRACTE_HOME=${ENTRACTE_HOME:-#{escaped_project_dir}}
 
     case "${1:-}" in
+      setup)
+        shift || true
+        root_launcher="$(dirname "$ENTRACTE_HOME")/entracte"
+        if [ -x "$root_launcher" ]; then
+          exec "$root_launcher" setup "$@"
+        fi
+        echo "usage: run setup from the checked-out repo with ./entracte setup" >&2
+        exit 2
+        ;;
       bootstrap)
         shift || true
         cd -P "$ENTRACTE_HOME"
@@ -113,7 +123,7 @@ defmodule Mix.Tasks.Entracte.Install do
         exec mix symphony.bootstrap "$@"
         ;;
       -h|--help|help)
-        echo "usage: entracte [start|check|bootstrap] [profile.toml|bootstrap args...]" >&2
+        echo "usage: entracte [setup|start|check|bootstrap] [profile.toml|bootstrap args...]" >&2
         exit 0
         ;;
     esac
@@ -132,7 +142,7 @@ defmodule Mix.Tasks.Entracte.Install do
             mode="check"
             ;;
           -h|--help|help)
-            echo "usage: entracte [start|check|bootstrap] [profile.toml|bootstrap args...]" >&2
+            echo "usage: entracte [setup|start|check|bootstrap] [profile.toml|bootstrap args...]" >&2
             exit 0
             ;;
           *)
@@ -147,13 +157,13 @@ defmodule Mix.Tasks.Entracte.Install do
             profile_arg="$2"
             ;;
           *)
-            echo "usage: entracte [start|check|bootstrap] [profile.toml|bootstrap args...]" >&2
+            echo "usage: entracte [setup|start|check|bootstrap] [profile.toml|bootstrap args...]" >&2
             exit 2
             ;;
         esac
         ;;
       *)
-        echo "usage: entracte [start|check|bootstrap] [profile.toml|bootstrap args...]" >&2
+        echo "usage: entracte [setup|start|check|bootstrap] [profile.toml|bootstrap args...]" >&2
         exit 2
         ;;
     esac

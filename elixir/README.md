@@ -59,21 +59,27 @@ mise exec -- elixir --version
 
 ## Run
 
+For a first install after cloning, use the guided setup:
+
 ```bash
 git clone <this-repo-url>
 cd entracte
-cd elixir
-mise trust
-mise install
-mise exec -- mix setup
-mise exec -- mix build
-cp .env.example .env
-$EDITOR .env
-mise exec -- mix symphony.bootstrap
-# Optional: make this checkout run agents through Sari/Claude Code instead of Codex.
-mise exec -- mix symphony.bootstrap --runtime sari/claude_code --sari-bin /path/to/sari/scripts/sari_app_server
-cd ..
+./entracte setup
 ./entracte start
+```
+
+`./entracte setup` installs the Elixir toolchain through `mise` when available, builds the local
+runner, creates `elixir/.env`, asks for the Linear API key and project, asks whether to use Codex or
+Sari/Claude Code, and then runs bootstrap. If Sari is cloned next to Entr'acte or under
+`~/Code/sari`, setup auto-detects `scripts/sari_app_server`.
+
+Non-interactive example for Sari/Claude Code:
+
+```bash
+./entracte setup \
+  --runtime sari/claude_code \
+  --sari-bin /path/to/sari/scripts/sari_app_server \
+  --project <linear-project-slug-or-url>
 ```
 
 See [`docs/team_workflow.md`](docs/team_workflow.md) for team runner models, credit ownership, and
@@ -84,6 +90,7 @@ manager onboarding.
 This repo also includes `./entracte`, a small wrapper around the Mix tasks:
 
 ```bash
+./entracte setup
 ./entracte start
 ./entracte check
 ./entracte bootstrap
@@ -100,6 +107,7 @@ mise exec -- mix entracte.install
 Then start this checkout with defaults or use a TOML profile from any directory:
 
 ```bash
+entracte setup
 entracte start
 entracte check
 entracte bootstrap --runtime sari/claude_code --sari-bin /path/to/sari/scripts/sari_app_server

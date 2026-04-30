@@ -34,6 +34,15 @@ help with the setup:
 > Set up Symphony for my repository based on
 > https://github.com/openai/symphony/blob/main/elixir/README.md
 
+For this Entr'acte checkout, the guided local path is:
+
+```bash
+git clone <this-repo-url>
+cd entracte
+./entracte setup
+./entracte start
+```
+
 ---
 
 ## License
