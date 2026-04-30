@@ -5,6 +5,7 @@ defmodule SymphonyElixir.Bootstrap do
 
   alias SymphonyElixir.{
     EnvFile,
+    RuntimePreset,
     SmokeCheck,
     Tracker,
     TrackerLabelInstaller,
@@ -28,6 +29,7 @@ defmodule SymphonyElixir.Bootstrap do
   @type result :: %{
           required(:env_file) => Path.t(),
           required(:project_slugs) => [String.t()],
+          required(:runtime_preset) => String.t(),
           required(:projects) => [Project.t()],
           required(:label_results) => [LabelInstallation.t()],
           required(:workflow_state_results) => [WorkflowStateInstallation.t()],
@@ -72,7 +74,7 @@ defmodule SymphonyElixir.Bootstrap do
          {:ok, _apps} <- deps.ensure_req_started.(),
          {:ok, projects} <- fetch_projects(deps),
          {:ok, selected_projects} <- select_projects(projects, opts),
-         :ok <- write_runner_env(env_path, selected_projects, opts, deps),
+         {:ok, runtime_preset} <- write_runner_env(env_path, selected_projects, opts, deps),
          :ok <- deps.load_env_file.(env_path),
          {:ok, label_results} <- maybe_install_labels(opts, env_path, workflow_path, deps),
          {:ok, workflow_state_results} <- maybe_install_workflow_states(opts, env_path, workflow_path, deps),
@@ -83,6 +85,7 @@ defmodule SymphonyElixir.Bootstrap do
        %{
          env_file: env_path,
          project_slugs: Enum.map(selected_projects, & &1.slug),
+         runtime_preset: runtime_preset,
          projects: selected_projects,
          label_results: label_results,
          workflow_state_results: workflow_state_results,
@@ -195,17 +198,85 @@ defmodule SymphonyElixir.Bootstrap do
   end
 
   defp write_runner_env(env_path, selected_projects, opts, deps) do
-    with {:ok, tracker_entries} <- deps.tracker_env_entries.(selected_projects, opts) do
+    with {:ok, tracker_entries} <- deps.tracker_env_entries.(selected_projects, opts),
+         {:ok, runtime_preset, runtime_entries} <- runtime_env_entries(opts, deps) do
       entries =
         tracker_entries
         |> maybe_put("SOURCE_REPO_URL", source_repo_url(opts, deps))
         |> maybe_put("SYMPHONY_WORKSPACE_ROOT", workspace_root(opts, env_path))
-        |> maybe_put("CODEX_BIN", Keyword.get(opts, :codex_bin, "codex"))
         |> maybe_put("SYMPHONY_PORT", Keyword.get(opts, :port))
+        |> Map.merge(runtime_entries)
 
-      upsert_env_file(env_path, entries, deps)
+      with :ok <- upsert_env_file(env_path, entries, deps) do
+        {:ok, runtime_preset}
+      end
     end
   end
+
+  defp runtime_env_entries(opts, deps) do
+    with {:ok, runtime_preset} <- runtime_preset(opts, deps),
+         {:ok, preset} <- RuntimePreset.get(runtime_preset),
+         {:ok, entries} <- do_runtime_env_entries(preset, opts, deps) do
+      {:ok, runtime_preset, entries}
+    end
+  end
+
+  defp runtime_preset(opts, deps) do
+    opts
+    |> Keyword.get(:runtime)
+    |> case do
+      runtime when is_binary(runtime) ->
+        RuntimePreset.normalize(runtime)
+
+      _ ->
+        deps.get_env.("ENTRACTE_RUNTIME_PRESET")
+        |> normalize_env()
+        |> RuntimePreset.normalize()
+    end
+  end
+
+  defp do_runtime_env_entries(%{id: runtime_preset, kind: :codex}, opts, deps) do
+    codex_bin =
+      Keyword.get(opts, :codex_bin) ||
+        normalize_env(deps.get_env.("CODEX_BIN")) ||
+        "codex"
+
+    {:ok,
+     %{
+       "ENTRACTE_RUNTIME_PRESET" => runtime_preset,
+       "CODEX_BIN" => codex_bin
+     }}
+  end
+
+  defp do_runtime_env_entries(%{id: runtime_preset, kind: :sari}, opts, deps) do
+    case sari_bin(opts, deps) do
+      nil ->
+        {:error, {:missing_sari_bin, runtime_preset}}
+
+      sari_bin ->
+        entries =
+          %{
+            "ENTRACTE_RUNTIME_PRESET" => runtime_preset,
+            "SARI_BIN" => sari_bin
+          }
+          |> maybe_put("SARI_OPENCODE_BASE_URL", opencode_base_url(opts, deps, runtime_preset))
+
+        {:ok, entries}
+    end
+  end
+
+  defp sari_bin(opts, deps) do
+    Keyword.get(opts, :sari_bin) ||
+      normalize_env(deps.get_env.("SARI_BIN"))
+  end
+
+  defp opencode_base_url(opts, deps, "sari/opencode_lmstudio") do
+    Keyword.get(opts, :opencode_base_url) ||
+      normalize_env(deps.get_env.("SARI_OPENCODE_BASE_URL")) ||
+      "http://127.0.0.1:41888"
+  end
+
+  defp opencode_base_url(_opts, _deps, _runtime_preset), do: nil
 
   defp source_repo_url(opts, deps) do
     case Keyword.get(opts, :source_repo_url) || normalize_env(deps.get_env.("SOURCE_REPO_URL")) do

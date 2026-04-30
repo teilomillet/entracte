@@ -30,6 +30,34 @@ defmodule Mix.Tasks.Entracte.InstallTest do
     assert captured_pwd(tmp_dir) == physical_path(home)
   end
 
+  test "installed launcher forwards bootstrap arguments", %{tmp_dir: tmp_dir} do
+    launcher = install_launcher!(tmp_dir)
+    home = Path.join(tmp_dir, "checkout")
+    File.mkdir_p!(home)
+    stub = write_mise_stub!(tmp_dir)
+
+    {output, status} =
+      System.cmd(launcher, ["bootstrap", "--runtime", "sari/claude_code", "--sari-bin", "/opt/sari"],
+        env: launcher_env(stub, tmp_dir, home),
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, output
+
+    assert captured_args(tmp_dir) == [
+             "exec",
+             "--",
+             "mix",
+             "symphony.bootstrap",
+             "--runtime",
+             "sari/claude_code",
+             "--sari-bin",
+             "/opt/sari"
+           ]
+
+    assert captured_pwd(tmp_dir) == physical_path(home)
+  end
+
   test "installed launcher keeps profile-file compatibility", %{tmp_dir: tmp_dir} do
     launcher = install_launcher!(tmp_dir)
     home = Path.join(tmp_dir, "checkout")

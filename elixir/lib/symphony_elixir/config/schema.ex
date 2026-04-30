@@ -5,7 +5,7 @@ defmodule SymphonyElixir.Config.Schema do
 
   import Ecto.Changeset
 
-  alias SymphonyElixir.PathSafety
+  alias SymphonyElixir.{PathSafety, RuntimePreset}
 
   @primary_key false
 
@@ -531,7 +531,12 @@ defmodule SymphonyElixir.Config.Schema do
 
     runtime = %{
       settings.runtime
-      | approval_policy: normalize_keys(settings.runtime.approval_policy),
+      | preset:
+          resolve_secret_setting(
+            settings.runtime.preset,
+            System.get_env("ENTRACTE_RUNTIME_PRESET") || RuntimePreset.default_id()
+          ),
+        approval_policy: normalize_keys(settings.runtime.approval_policy),
         turn_sandbox_policy: normalize_optional_map(settings.runtime.turn_sandbox_policy)
     }
 

@@ -18,10 +18,11 @@ defmodule Mix.Tasks.Symphony.Bootstrap do
       mix symphony.bootstrap --project entracte-abc123
       mix symphony.bootstrap --all-projects
       mix symphony.bootstrap --profile client-a --project client-a-def456
+      mix symphony.bootstrap --runtime sari/claude_code --sari-bin /path/to/sari/scripts/sari_app_server
 
   The task loads or creates `.env`, discovers projects visible to the configured tracker, writes
-  the chosen project slug, installs dispatch labels, required workflow states, the default tracker
-  issue template and saved views, and runs the smoke check.
+  the chosen project slug and runtime preset, installs dispatch labels, required workflow states,
+  the default tracker issue template and saved views, and runs the smoke check.
   """
 
   @shortdoc "Discovers tracker projects and writes local runner env config"
@@ -34,7 +35,10 @@ defmodule Mix.Tasks.Symphony.Bootstrap do
     source_repo_url: :string,
     workspace_root: :string,
     assignee: :string,
+    runtime: :string,
     codex_bin: :string,
+    sari_bin: :string,
+    opencode_base_url: :string,
     port: :integer,
     skip_label_install: :boolean,
     skip_state_install: :boolean,
@@ -64,6 +68,7 @@ defmodule Mix.Tasks.Symphony.Bootstrap do
   defp print_result(result) do
     Mix.shell().info("[ok] env file: #{result.env_file}")
     Mix.shell().info("[ok] tracker project slug(s): #{Enum.join(result.project_slugs, ", ")}")
+    Mix.shell().info("[ok] runtime preset: #{result.runtime_preset}")
 
     Enum.each(result.label_results, fn label_result ->
       Mix.shell().info(format_label_result(label_result))
@@ -141,6 +146,14 @@ defmodule Mix.Tasks.Symphony.Bootstrap do
     |> String.trim()
   end
 
+  defp format_error({:unknown_runtime_preset, runtime, known_ids}) do
+    "Runtime preset #{inspect(runtime)} is not supported. Known presets: #{Enum.join(known_ids, ", ")}."
+  end
+
+  defp format_error({:missing_sari_bin, runtime}) do
+    "Runtime preset #{runtime} requires SARI_BIN. Pass --sari-bin /path/to/sari/scripts/sari_app_server or set SARI_BIN in the environment."
+  end
+
   defp format_error(reason), do: "symphony.bootstrap failed: #{inspect(reason)}"
 
   defp format_project_choices(projects) do
@@ -150,6 +163,6 @@ defmodule Mix.Tasks.Symphony.Bootstrap do
   end
 
   defp usage do
-    "Usage: mix symphony.bootstrap [--project slug | --all-projects] [--profile name] [--workflow path] [--env-file path] [--source-repo-url url] [--workspace-root path] [--port port] [--skip-label-install] [--skip-template-install] [--skip-view-install] [--skip-check]"
+    "Usage: mix symphony.bootstrap [--project slug | --all-projects] [--runtime codex/app_server|sari/claude_code|sari/opencode_lmstudio] [--sari-bin path] [--profile name] [--workflow path] [--env-file path] [--source-repo-url url] [--workspace-root path] [--port port] [--skip-label-install] [--skip-template-install] [--skip-view-install] [--skip-check]"
   end
 end

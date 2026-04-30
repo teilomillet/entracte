@@ -562,6 +562,9 @@ Fields:
 - `preset` (string or null)
   - Optional operator-readable runtime/facade preset name, for example `sari/opencode_lmstudio`.
   - Used for observability/config clarity; backend selection semantics belong to the facade command.
+  - Implementations MAY resolve this from an environment variable such as
+    `ENTRACTE_RUNTIME_PRESET` so one committed workflow can select different local app-server
+    facades per workstation.
 - `approval_policy`, `thread_sandbox`, `turn_sandbox_policy`
   - Preferred neutral pass-through slots for app-server policy payloads.
   - If omitted, implementations SHOULD fall back to the corresponding `codex.*` compatibility field.
@@ -2350,6 +2353,8 @@ network access, or external service permissions are unavailable.
 
 - A real tracker smoke test can be run with valid credentials supplied by `LINEAR_API_KEY` or a
   documented local bootstrap mechanism (for example `~/.linear_api_key`).
+- A local app-server facade smoke test SHOULD validate the selected runtime preset and its required
+  executable configuration, for example `CODEX_BIN` for Codex or `SARI_BIN` for Sari.
 - Real integration tests SHOULD use isolated test identifiers/workspaces and clean up tracker
   artifacts when practical.
 - A skipped real-integration test SHOULD be reported as skipped, not silently treated as passed.

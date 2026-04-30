@@ -70,6 +70,8 @@ mise exec -- mix build
 cp .env.example .env
 $EDITOR .env
 mise exec -- mix symphony.bootstrap
+# Optional: make this checkout run agents through Sari/Claude Code instead of Codex.
+mise exec -- mix symphony.bootstrap --runtime sari/claude_code --sari-bin /path/to/sari/scripts/sari_app_server
 cd ..
 ./entracte start
 ```
@@ -100,6 +102,7 @@ Then start this checkout with defaults or use a TOML profile from any directory:
 ```bash
 entracte start
 entracte check
+entracte bootstrap --runtime sari/claude_code --sari-bin /path/to/sari/scripts/sari_app_server
 entracte start /path/to/runner.toml
 entracte /path/to/runner.toml
 entracte check /path/to/runner.toml
@@ -195,10 +198,23 @@ Notes:
   invocation when a turn completes normally but the issue is still in an active state. Default: `20`.
 
 A backend-neutral app-server facade such as Sari can use the same `app_server`
-runner by setting `runtime.command` to any command that speaks the compatible
-JSON-RPC stdio protocol. Entr'acte still launches it from the issue workspace;
-legacy `codex.command` remains a compatibility fallback when `runtime.command`
-is omitted:
+runner. The default `WORKFLOW.md` dispatches from `ENTRACTE_RUNTIME_PRESET`, so
+the portable path is to keep the workflow committed and write machine-local
+runtime values through bootstrap:
+
+```bash
+mix symphony.bootstrap --runtime sari/claude_code --sari-bin /path/to/sari/scripts/sari_app_server
+```
+
+That writes `ENTRACTE_RUNTIME_PRESET=sari/claude_code` and `SARI_BIN=...` to the
+selected `.env` file. For OpenCode through Sari, use
+`--runtime sari/opencode_lmstudio`; bootstrap also writes a default
+`SARI_OPENCODE_BASE_URL` if it is not already configured.
+
+Manual workflow overrides still work: set `runtime.command` to any command that
+speaks the compatible JSON-RPC stdio protocol. Entr'acte launches it from the
+issue workspace; legacy `codex.command` remains a compatibility fallback when
+`runtime.command` is omitted:
 
 ```yaml
 agent:
@@ -256,12 +272,15 @@ approvals, or dynamic tool calls.
   workstation-specific values. Values loaded from `.env` apply to the current Symphony process before
   `WORKFLOW.md` config is resolved and override already-set process environment values for that run.
 - Run `mix symphony.bootstrap` after adding `LINEAR_API_KEY` to `.env` or exporting it. It discovers
-  projects visible to the configured tracker, writes the project slug when unambiguous, installs the
-  dispatch labels, creates missing states listed in `tracker.bootstrap_states` such as
+  projects visible to the configured tracker, writes the project slug and selected runtime preset
+  when unambiguous, installs the dispatch labels, creates missing states listed in
+  `tracker.bootstrap_states` such as
   `Human Review`, `Merging`, and `Rework`, installs the default tracker issue template, creates
   saved tracker views for `All`, `Ready`, `Paused`, plus each non-canceled Linear workflow state,
   favorites those views under a `Symphony` sidebar folder, and runs the smoke check.
-  If several projects are visible, rerun it with `--project <slug>` or `--all-projects`.
+  If several projects are visible, rerun it with `--project <slug>` or `--all-projects`. Use
+  `--runtime sari/claude_code --sari-bin /path/to/sari/scripts/sari_app_server` when this runner
+  should use Sari/Claude Code instead of Codex.
 - Run `mix symphony.check` after editing `.env` to verify the env file, workflow config, Linear
   read access, source repository reachability, and Codex binary before starting the daemon. The check
   does not create Linear issues or start Codex agents.

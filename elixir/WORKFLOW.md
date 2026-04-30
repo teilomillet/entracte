@@ -52,8 +52,28 @@ headless:
   command: null
   timeout_ms: 3600000
 runtime:
-  command: "${CODEX_BIN:-codex} --config shell_environment_policy.inherit=all --config 'model=\"gpt-5.5\"' --config model_reasoning_effort=xhigh app-server"
-  preset: codex/app_server
+  command: |
+    case "${ENTRACTE_RUNTIME_PRESET:-codex/app_server}" in
+      codex|codex_app_server|codex/app_server)
+        exec "${CODEX_BIN:-codex}" --config shell_environment_policy.inherit=all --config 'model="gpt-5.5"' --config model_reasoning_effort=xhigh app-server
+        ;;
+      sari/fake)
+        exec "${SARI_BIN:?Set SARI_BIN to /path/to/sari/scripts/sari_app_server}" --preset fake
+        ;;
+      sari/claude|sari/claude_code|claude|claude_code)
+        exec "${SARI_BIN:?Set SARI_BIN to /path/to/sari/scripts/sari_app_server}" --preset claude_code
+        ;;
+      sari/opencode|sari/opencode_lmstudio|opencode|opencode_lmstudio)
+        SARI_OPENCODE_BASE_URL="${SARI_OPENCODE_BASE_URL:-http://127.0.0.1:41888}"
+        export SARI_OPENCODE_BASE_URL
+        exec "${SARI_BIN:?Set SARI_BIN to /path/to/sari/scripts/sari_app_server}" --preset opencode_lmstudio
+        ;;
+      *)
+        echo "Unsupported ENTRACTE_RUNTIME_PRESET: ${ENTRACTE_RUNTIME_PRESET}" >&2
+        exit 64
+        ;;
+    esac
+  preset: $ENTRACTE_RUNTIME_PRESET
   approval_policy: never
   thread_sandbox: danger-full-access
   turn_sandbox_policy:

@@ -141,8 +141,10 @@ defmodule SymphonyElixir.CoreTest do
 
     runtime = Map.get(config, "runtime", %{})
     assert is_map(runtime)
+    assert Map.get(runtime, "command") =~ "ENTRACTE_RUNTIME_PRESET"
     assert Map.get(runtime, "command") =~ "${CODEX_BIN:-codex}"
-    assert Map.get(runtime, "preset") == "codex/app_server"
+    assert Map.get(runtime, "command") =~ "sari/claude_code"
+    assert Map.get(runtime, "preset") == "$ENTRACTE_RUNTIME_PRESET"
 
     assert String.trim(prompt) != ""
     assert is_binary(Config.workflow_prompt())

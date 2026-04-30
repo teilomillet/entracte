@@ -15,6 +15,8 @@ defmodule Mix.Tasks.Entracte.Install do
       entracte
       entracte start
       entracte check
+      entracte bootstrap
+      entracte bootstrap --runtime sari/claude_code --sari-bin /path/to/sari/scripts/sari_app_server
       entracte start /path/to/runner.toml
       entracte check /path/to/runner.toml
 
@@ -101,6 +103,21 @@ defmodule Mix.Tasks.Entracte.Install do
 
     ENTRACTE_HOME=${ENTRACTE_HOME:-#{escaped_project_dir}}
 
+    case "${1:-}" in
+      bootstrap)
+        shift || true
+        cd -P "$ENTRACTE_HOME"
+        if command -v mise >/dev/null 2>&1; then
+          exec mise exec -- mix symphony.bootstrap "$@"
+        fi
+        exec mix symphony.bootstrap "$@"
+        ;;
+      -h|--help|help)
+        echo "usage: entracte [start|check|bootstrap] [profile.toml|bootstrap args...]" >&2
+        exit 0
+        ;;
+    esac
+
     mode="start"
     profile_arg=""
 
@@ -115,7 +132,7 @@ defmodule Mix.Tasks.Entracte.Install do
             mode="check"
             ;;
           -h|--help|help)
-            echo "usage: entracte [start|check] [profile.toml]" >&2
+            echo "usage: entracte [start|check|bootstrap] [profile.toml|bootstrap args...]" >&2
             exit 0
             ;;
           *)
@@ -130,13 +147,13 @@ defmodule Mix.Tasks.Entracte.Install do
             profile_arg="$2"
             ;;
           *)
-            echo "usage: entracte [start|check] [profile.toml]" >&2
+            echo "usage: entracte [start|check|bootstrap] [profile.toml|bootstrap args...]" >&2
             exit 2
             ;;
         esac
         ;;
       *)
-        echo "usage: entracte [start|check] [profile.toml]" >&2
+        echo "usage: entracte [start|check|bootstrap] [profile.toml|bootstrap args...]" >&2
         exit 2
         ;;
     esac

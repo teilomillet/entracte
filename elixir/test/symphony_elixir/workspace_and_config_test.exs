@@ -918,7 +918,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert config.headless.command == nil
     assert config.headless.timeout_ms == 3_600_000
     assert config.runtime.command == nil
-    assert config.runtime.preset == nil
+    assert config.runtime.preset == "codex/app_server"
     assert config.runtime.approval_policy == nil
     assert config.runtime.thread_sandbox == nil
     assert config.runtime.turn_sandbox_policy == nil

@@ -3,7 +3,7 @@ defmodule SymphonyElixir.SmokeCheck do
   Non-destructive runtime smoke checks for a local Symphony runner.
   """
 
-  alias SymphonyElixir.{Config, EnvFile, Tracker, Workflow}
+  alias SymphonyElixir.{Config, EnvFile, RuntimePreset, Tracker, Workflow}
   alias SymphonyElixir.Linear.Client
 
   @profile_pattern ~r/^[A-Za-z0-9_.-]+$/
@@ -48,6 +48,7 @@ defmodule SymphonyElixir.SmokeCheck do
           required(:linear_graphql) => (String.t(), map() -> {:ok, map()} | {:error, term()}),
           required(:fetch_candidate_issues) => (-> {:ok, [term()]} | {:error, term()}),
           required(:get_env) => (String.t() -> String.t() | nil),
+          required(:find_executable) => (String.t() -> String.t() | nil),
           required(:git_ls_remote) => (String.t() -> :ok | {:error, term()}),
           required(:codex_version) => (String.t() -> {:ok, String.t()} | {:error, term()})
         }
@@ -67,7 +68,7 @@ defmodule SymphonyElixir.SmokeCheck do
               check_workspace(settings, deps)
             ]
             |> Kernel.++(check_linear(settings, deps))
-            |> Kernel.++([check_source_repo(deps), check_codex(deps)])
+            |> Kernel.++([check_source_repo(deps), check_runtime(settings, deps)])
             |> finalize()
 
           {:error, workflow_result} ->
@@ -95,6 +96,7 @@ defmodule SymphonyElixir.SmokeCheck do
       linear_graphql: &Client.graphql/2,
       fetch_candidate_issues: &Tracker.fetch_candidate_issues/0,
       get_env: &System.get_env/1,
+      find_executable: &System.find_executable/1,
       git_ls_remote: &git_ls_remote/1,
       codex_version: &codex_version/1
     }
@@ -317,6 +319,34 @@ defmodule SymphonyElixir.SmokeCheck do
     end
   end
 
+  defp check_runtime(settings, deps) do
+    with {:ok, runtime_preset} <- selected_runtime_preset(settings, deps),
+         {:ok, preset} <- RuntimePreset.get(runtime_preset) do
+      case preset.kind do
+        :codex -> check_codex(deps)
+        :sari -> check_sari(preset, deps)
+      end
+    else
+      {:error, reason} -> fail("runtime preset", format_reason(reason))
+    end
+  end
+
+  defp selected_runtime_preset(settings, deps) do
+    runtime_preset =
+      case runtime_setting_preset(settings) do
+        nil -> deps.get_env.("ENTRACTE_RUNTIME_PRESET") |> normalize_env()
+        value -> value
+      end
+
+    RuntimePreset.normalize(runtime_preset)
+  end
+
+  defp runtime_setting_preset(settings) do
+    settings
+    |> get_in([:runtime, :preset])
+    |> normalize_env()
+  end
+
   defp check_codex(deps) do
     codex_bin =
       case deps.get_env.("CODEX_BIN") do
@@ -328,6 +358,38 @@ defmodule SymphonyElixir.SmokeCheck do
       {:ok, version} -> ok("Codex binary", String.trim(version))
       {:error, reason} -> fail("Codex binary", format_reason(reason))
     end
+  end
+
+  defp check_sari(%{id: runtime_preset}, deps) do
+    deps.get_env.("SARI_BIN")
+    |> normalize_env()
+    |> case do
+      nil -> fail("Sari binary", "SARI_BIN is missing for #{runtime_preset}")
+      sari_bin -> check_sari_bin(sari_bin, deps)
+    end
+  end
+
+  defp check_sari_bin(sari_bin, deps) do
+    cond do
+      path_like?(sari_bin) ->
+        expanded_path = Path.expand(sari_bin)
+
+        if deps.file_regular?.(expanded_path) do
+          ok("Sari binary", "found #{expanded_path}")
+        else
+          fail("Sari binary", "not found: #{expanded_path}")
+        end
+
+      found_path = deps.find_executable.(sari_bin) ->
+        ok("Sari binary", "found #{found_path}")
+
+      true ->
+        fail("Sari binary", "not found on PATH: #{sari_bin}")
+    end
+  end
+
+  defp path_like?(value) when is_binary(value) do
+    String.starts_with?(value, [".", "~"]) or String.contains?(value, ["/", "\\"])
   end
 
   defp git_ls_remote(source_repo_url) do
@@ -366,6 +428,21 @@ defmodule SymphonyElixir.SmokeCheck do
   defp skip(check, message), do: %{status: :skip, check: check, message: message}
 
   defp format_reason({:linear_api_status, status}), do: "Linear API returned HTTP #{status}"
+
+  defp format_reason({:unknown_runtime_preset, runtime, known_ids}) do
+    "unsupported runtime preset #{inspect(runtime)}; expected one of #{Enum.join(known_ids, ", ")}"
+  end
+
+  defp format_reason(:blank_runtime_preset), do: "runtime preset is blank"
   defp format_reason(reason) when is_binary(reason), do: reason
   defp format_reason(reason), do: inspect(reason)
+
+  defp normalize_env(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_env(_value), do: nil
 end
