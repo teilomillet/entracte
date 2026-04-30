@@ -64,34 +64,28 @@ For a first install after cloning, use the guided setup:
 ```bash
 git clone <this-repo-url>
 cd entracte
-./setup
+make install
 entracte start
 ```
 
-`./setup` installs the Elixir toolchain through `mise` when available, builds the local runner,
+`make install` runs the guided setup. It installs the Elixir toolchain through `mise` when available, builds the local runner,
 creates `elixir/.env`, asks for the Linear API key and project, asks which runtime to use, runs
 bootstrap, and installs a local `entracte` command when possible. Runtime choices are Codex,
 Sari/Claude Code, Sari/OpenCode LM Studio, and Sari's fake local backend. If Sari is cloned next to
 Entr'acte or under `~/Code/sari`, setup auto-detects `scripts/sari_app_server`.
-If your shell cannot find `entracte` afterward, run `./entracte start` from this checkout or add the
+If your shell cannot find `entracte` afterward, run `make start` from this checkout or add the
 printed bin directory to your `PATH`.
 
 Non-interactive example for Sari/Claude Code:
 
 ```bash
-./setup \
-  --runtime sari/claude_code \
-  --sari-bin /path/to/sari/scripts/sari_app_server \
-  --project <linear-project-slug-or-url>
+make install ARGS="--runtime sari/claude_code --sari-bin /path/to/sari/scripts/sari_app_server --project <linear-project-slug-or-url>"
 ```
 
 OpenCode through Sari uses the same setup path:
 
 ```bash
-./setup \
-  --runtime sari/opencode_lmstudio \
-  --sari-bin /path/to/sari/scripts/sari_app_server \
-  --project <linear-project-slug-or-url>
+make install ARGS="--runtime sari/opencode_lmstudio --sari-bin /path/to/sari/scripts/sari_app_server --project <linear-project-slug-or-url>"
 ```
 
 See [`docs/team_workflow.md`](docs/team_workflow.md) for team runner models, credit ownership, and

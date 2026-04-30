@@ -18,6 +18,45 @@ defmodule EntrActe.RootLauncherTest do
     assert output =~ "sari/fake"
   end
 
+  test "root make install delegates to guided setup" do
+    tmp_dir = Path.join(System.tmp_dir!(), "entracte-root-launcher-test-#{System.unique_integer([:positive])}")
+    File.rm_rf!(tmp_dir)
+    File.mkdir_p!(tmp_dir)
+
+    on_exit(fn -> File.rm_rf!(tmp_dir) end)
+
+    fake_elixir_dir = Path.join(tmp_dir, "elixir")
+    File.mkdir_p!(fake_elixir_dir)
+    File.write!(Path.join(fake_elixir_dir, ".env.example"), "LINEAR_API_KEY=\n")
+
+    stub_dir = write_mise_stub!(tmp_dir)
+
+    {output, status} =
+      System.cmd(
+        "make",
+        [
+          "install",
+          "ARGS=--yes --skip-bootstrap"
+        ],
+        cd: repo_root(),
+        env: [
+          {"PATH", stub_dir <> ":" <> System.get_env("PATH", "")},
+          {"CAPTURE_COMMANDS", Path.join(tmp_dir, "commands.txt")},
+          {"ENTRACTE_HOME", fake_elixir_dir},
+          {"ENTRACTE_SETUP_YES", "1"}
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, output
+    assert output =~ "./setup --yes --skip-bootstrap"
+
+    commands = captured_commands(tmp_dir)
+    assert Enum.any?(commands, &String.ends_with?(&1, " :: exec -- mix setup"))
+    assert Enum.any?(commands, &String.ends_with?(&1, " :: exec -- mix build"))
+    assert Enum.any?(commands, &String.ends_with?(&1, " :: exec -- mix entracte.install --force"))
+  end
+
   test "setup command runs the toolchain setup without requiring mix on PATH" do
     tmp_dir = Path.join(System.tmp_dir!(), "entracte-root-launcher-test-#{System.unique_integer([:positive])}")
     File.rm_rf!(tmp_dir)
