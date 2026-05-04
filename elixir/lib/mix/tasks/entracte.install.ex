@@ -16,19 +16,31 @@ defmodule Mix.Tasks.Entracte.Install do
       entracte setup
       entracte start
       entracte check
+      entracte doctor
+      entracte tickets
+      entracte status
+      entracte daemon start
+      entracte daemon status
       entracte bootstrap
       entracte bootstrap --runtime sari/claude_code --sari-bin /path/to/sari/scripts/sari_app_server
       entracte start /path/to/runner.toml
       entracte check /path/to/runner.toml
+      entracte doctor /path/to/runner.toml
+      entracte tickets /path/to/runner.toml
+      entracte status /path/to/runner.toml
+      entracte daemon start /path/to/runner.toml
 
   For backwards compatibility, `entracte /path/to/runner.toml` starts that
   profile. Profile files use a `[runner]` table:
 
       [runner]
+      name = "anef"
       workflow = "WORKFLOW.anef.md"
       env_file = "../.env.anef"
       logs_root = "../log/anef"
       port = 4000
+      podman_image = "localhost/entracte-runner:latest"
+      mount_host_auth = true
 
   Profile paths are resolved relative to the profile file. The profile argument
   itself is resolved relative to the directory where `entracte` is invoked.
@@ -123,63 +135,36 @@ defmodule Mix.Tasks.Entracte.Install do
         exec mix symphony.bootstrap "$@"
         ;;
       -h|--help|help)
-        echo "usage: entracte [setup|start|check|bootstrap] [profile.toml|bootstrap args...]" >&2
+        echo "usage: entracte [setup|start|check|doctor|tickets|status|daemon|bootstrap] [profile.toml|args...]" >&2
         exit 0
         ;;
     esac
 
     mode="start"
-    profile_arg=""
 
-    case "$#" in
-      0)
+    case "${1:-}" in
+      start|check|doctor|tickets|status|daemon)
+        mode="$1"
+        shift || true
         ;;
-      1)
-        case "$1" in
-          start)
-            ;;
-          check)
-            mode="check"
-            ;;
-          -h|--help|help)
-            echo "usage: entracte [setup|start|check|bootstrap] [profile.toml|bootstrap args...]" >&2
-            exit 0
-            ;;
-          *)
-            profile_arg="$1"
-            ;;
-        esac
-        ;;
-      2)
-        case "$1" in
-          start|check)
-            mode="$1"
-            profile_arg="$2"
-            ;;
-          *)
-            echo "usage: entracte [setup|start|check|bootstrap] [profile.toml|bootstrap args...]" >&2
-            exit 2
-            ;;
-        esac
-        ;;
-      *)
-        echo "usage: entracte [setup|start|check|bootstrap] [profile.toml|bootstrap args...]" >&2
-        exit 2
+      -h|--help|help)
+        echo "usage: entracte [setup|start|check|doctor|tickets|status|daemon|bootstrap] [profile.toml|args...]" >&2
+        exit 0
         ;;
     esac
 
     CALLER_CWD="$(pwd -P)"
 
-    python3 - "$mode" "$profile_arg" "$ENTRACTE_HOME" "$CALLER_CWD" <<'PY'
+    python3 - "$mode" "$ENTRACTE_HOME" "$CALLER_CWD" "$@" <<'PY'
     import os
     import pathlib
     import shutil
     import sys
 
     mode = sys.argv[1]
-    profile_arg = sys.argv[2]
-    entracte_home = pathlib.Path(sys.argv[3])
-    caller_cwd = pathlib.Path(sys.argv[4])
+    entracte_home = pathlib.Path(sys.argv[2])
+    caller_cwd = pathlib.Path(sys.argv[3])
+    raw_args = sys.argv[4:]
 
     def parse_profile(text):
         data = {}
@@ -199,6 +184,10 @@ defmodule Mix.Tasks.Entracte.Install do
             value = value.strip()
             if value.startswith('"') and value.endswith('"'):
                 parsed = value[1:-1]
+            elif value.lower() == "true":
+                parsed = True
+            elif value.lower() == "false":
+                parsed = False
             else:
                 try:
                     parsed = int(value)
@@ -207,6 +196,15 @@ defmodule Mix.Tasks.Entracte.Install do
             target = section if section is not None else data
             target[key] = parsed
         return data
+
+    profile_arg = ""
+    passthrough_args = []
+
+    for arg in raw_args:
+        if not profile_arg and not arg.startswith("-") and (arg.endswith(".toml") or pathlib.Path(arg).suffix == ".toml"):
+            profile_arg = arg
+        else:
+            passthrough_args.append(arg)
 
     if profile_arg:
         profile_path = pathlib.Path(profile_arg).expanduser()
@@ -228,7 +226,15 @@ defmodule Mix.Tasks.Entracte.Install do
             path = (base / path).resolve()
         return str(path)
 
-    task = "symphony.check" if mode == "check" else "symphony.start"
+    task_by_mode = {
+        "start": "symphony.start",
+        "check": "symphony.check",
+        "doctor": "symphony.doctor",
+        "tickets": "symphony.tickets",
+        "status": "symphony.status",
+        "daemon": "symphony.daemon",
+    }
+    task = task_by_mode[mode]
 
     if shutil.which("mise"):
         args = ["mise", "exec", "--", "mix", task]
@@ -240,14 +246,36 @@ defmodule Mix.Tasks.Entracte.Install do
     logs_root = path_value("logs_root")
     port = runner.get("port")
 
+    if mode == "daemon":
+        args += passthrough_args
+
     if workflow:
         args += ["--workflow", workflow]
     if env_file:
         args += ["--env-file", env_file]
-    if mode == "start" and logs_root:
+    if mode in ("start", "status", "daemon") and logs_root:
         args += ["--logs-root", logs_root]
-    if mode == "start" and port:
+    if mode in ("start", "doctor", "status", "daemon") and port:
         args += ["--port", str(port)]
+
+    def has_switch(argv, switch):
+        return any(arg == switch or arg.startswith(switch + "=") for arg in argv)
+
+    if mode == "daemon":
+        daemon_name = runner.get("name")
+        if not daemon_name and profile_arg:
+            daemon_name = profile_path.stem
+        if daemon_name and not has_switch(args, "--name"):
+            args += ["--name", str(daemon_name)]
+
+        daemon_image = runner.get("podman_image") or runner.get("image")
+        if daemon_image and not has_switch(args, "--image"):
+            args += ["--image", str(daemon_image)]
+
+        if runner.get("mount_host_auth") is True and not has_switch(args, "--mount-host-auth"):
+            args += ["--mount-host-auth"]
+    else:
+        args += passthrough_args
 
     os.chdir(entracte_home)
     os.execvp(args[0], args)

@@ -565,6 +565,32 @@ defmodule SymphonyElixir.AgentRuntimeTest do
     end
   end
 
+  test "headless runner stops a silent command when the receive timeout expires" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-headless-silent-timeout-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace = Path.join(test_root, "workspace")
+      runner = Path.join(test_root, "fake-headless-silent-timeout")
+      File.mkdir_p!(workspace)
+
+      File.write!(runner, """
+      #!/bin/sh
+      sleep 1
+      """)
+
+      File.chmod!(runner, 0o755)
+
+      assert {:error, :headless_timeout} =
+               Headless.run_turn(headless_session(workspace, runner, 50), "prompt", headless_issue("MT-HEADLESS-SILENT-TIMEOUT"))
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "headless port metadata tolerates closed ports without an os pid" do
     shell = System.find_executable("sh") || System.find_executable("bash")
 

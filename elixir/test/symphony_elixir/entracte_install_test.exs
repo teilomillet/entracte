@@ -126,6 +126,95 @@ defmodule Mix.Tasks.Entracte.InstallTest do
            ]
   end
 
+  test "installed launcher forwards operator commands with profile files", %{tmp_dir: tmp_dir} do
+    launcher = install_launcher!(tmp_dir)
+    home = Path.join(tmp_dir, "checkout")
+    profile_dir = Path.join(tmp_dir, "profiles")
+    File.mkdir_p!(home)
+    File.mkdir_p!(profile_dir)
+
+    profile_path = Path.join(profile_dir, "runner.toml")
+
+    File.write!(profile_path, """
+    [runner]
+    workflow = "WORKFLOW.custom.md"
+    env_file = ".env.custom"
+    logs_root = "log/custom"
+    port = 4100
+    """)
+
+    stub = write_mise_stub!(tmp_dir)
+
+    for {mode, task} <- [{"doctor", "symphony.doctor"}, {"tickets", "symphony.tickets"}, {"status", "symphony.status"}] do
+      File.rm(Path.join(tmp_dir, "args.txt"))
+
+      {output, status} =
+        System.cmd(launcher, [mode, profile_path],
+          env: launcher_env(stub, tmp_dir, home),
+          stderr_to_stdout: true
+        )
+
+      assert status == 0, output
+      args = captured_args(tmp_dir)
+      assert Enum.take(args, 4) == ["exec", "--", "mix", task]
+      assert "--workflow" in args
+      assert "--env-file" in args
+    end
+  end
+
+  test "installed launcher forwards daemon commands with profile files", %{tmp_dir: tmp_dir} do
+    launcher = install_launcher!(tmp_dir)
+    home = Path.join(tmp_dir, "checkout")
+    profile_dir = Path.join(tmp_dir, "profiles")
+    File.mkdir_p!(home)
+    File.mkdir_p!(profile_dir)
+
+    profile_path = Path.join(profile_dir, "anef.toml")
+
+    File.write!(profile_path, """
+    [runner]
+    name = "anef"
+    workflow = "WORKFLOW.custom.md"
+    env_file = ".env.custom"
+    logs_root = "log/custom"
+    port = 4100
+    podman_image = "localhost/entracte-anef:latest"
+    mount_host_auth = true
+    """)
+
+    stub = write_mise_stub!(tmp_dir)
+
+    {output, status} =
+      System.cmd(launcher, ["daemon", "start", profile_path, "--allow-running-dashboard"],
+        env: launcher_env(stub, tmp_dir, home),
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, output
+
+    assert captured_args(tmp_dir) == [
+             "exec",
+             "--",
+             "mix",
+             "symphony.daemon",
+             "start",
+             "--allow-running-dashboard",
+             "--workflow",
+             Path.join(physical_path(profile_dir), "WORKFLOW.custom.md"),
+             "--env-file",
+             Path.join(physical_path(profile_dir), ".env.custom"),
+             "--logs-root",
+             Path.join(physical_path(profile_dir), "log/custom"),
+             "--port",
+             "4100",
+             "--name",
+             "anef",
+             "--image",
+             "localhost/entracte-anef:latest",
+             "--mount-host-auth"
+           ]
+  end
+
   defp install_launcher!(tmp_dir) do
     bin_dir = Path.join(tmp_dir, "bin")
 

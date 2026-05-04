@@ -1,6 +1,7 @@
 defmodule SymphonyElixir.SmokeCheckTest do
   use ExUnit.Case, async: true
 
+  alias SymphonyElixir.Config.Schema
   alias SymphonyElixir.SmokeCheck
 
   test "passes when local config and read-only external checks succeed" do
@@ -112,6 +113,33 @@ defmodule SymphonyElixir.SmokeCheckTest do
     sari_deps =
       deps(
         settings: fn -> settings(runtime_preset: "sari/claude_code") end,
+        get_env: fn
+          "SOURCE_REPO_URL" -> "https://github.com/acme/project.git"
+          "SARI_BIN" -> "/opt/sari/scripts/sari_app_server"
+          _key -> nil
+        end,
+        file_regular?: fn
+          "/opt/sari/scripts/sari_app_server" -> true
+          _path -> true
+        end
+      )
+
+    assert {:ok, results} = SmokeCheck.run([], sari_deps)
+
+    assert_result(results, :ok, "Sari binary", "/opt/sari/scripts/sari_app_server")
+    refute Enum.any?(results, &(&1.check == "Codex binary"))
+  end
+
+  test "reads runtime preset from typed config settings" do
+    typed_settings = %Schema{
+      tracker: %Schema.Tracker{project_slug: "project-slug"},
+      workspace: %Schema.Workspace{root: Path.join(System.tmp_dir!(), "symphony-check")},
+      runtime: %Schema.Runtime{preset: "sari/claude_code"}
+    }
+
+    sari_deps =
+      deps(
+        settings: fn -> typed_settings end,
         get_env: fn
           "SOURCE_REPO_URL" -> "https://github.com/acme/project.git"
           "SARI_BIN" -> "/opt/sari/scripts/sari_app_server"

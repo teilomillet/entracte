@@ -5,7 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 elixir_dir="${ENTRACTE_HOME:-$repo_root/elixir}"
 
 usage() {
-  echo "usage: ./entracte [setup|start|check|bootstrap|install] [args...]" >&2
+  echo "usage: ./entracte [setup|start|check|doctor|tickets|status|daemon|bootstrap|install] [args...]" >&2
 }
 
 die() {
@@ -359,6 +359,22 @@ case "$mode" in
   check)
     shift || true
     task="symphony.check"
+    ;;
+  doctor)
+    shift || true
+    task="symphony.doctor"
+    ;;
+  tickets)
+    shift || true
+    task="symphony.tickets"
+    ;;
+  status)
+    shift || true
+    task="symphony.status"
+    ;;
+  daemon)
+    shift || true
+    task="symphony.daemon"
     ;;
   bootstrap)
     shift || true

@@ -3,7 +3,7 @@ defmodule SymphonyElixir.SmokeCheck do
   Non-destructive runtime smoke checks for a local Symphony runner.
   """
 
-  alias SymphonyElixir.{Config, EnvFile, RuntimePreset, Tracker, Workflow}
+  alias SymphonyElixir.{Config, EnvFile, RuntimePreset, SecretRedactor, Tracker, Workflow}
   alias SymphonyElixir.Linear.Client
 
   @profile_pattern ~r/^[A-Za-z0-9_.-]+$/
@@ -341,11 +341,8 @@ defmodule SymphonyElixir.SmokeCheck do
     RuntimePreset.normalize(runtime_preset)
   end
 
-  defp runtime_setting_preset(settings) do
-    settings
-    |> get_in([:runtime, :preset])
-    |> normalize_env()
-  end
+  defp runtime_setting_preset(%{runtime: %{preset: preset}}), do: normalize_env(preset)
+  defp runtime_setting_preset(_settings), do: nil
 
   defp check_codex(deps) do
     codex_bin =
@@ -398,7 +395,7 @@ defmodule SymphonyElixir.SmokeCheck do
            stderr_to_stdout: true
          ) do
       {_output, 0} -> :ok
-      {output, status} -> {:error, "git ls-remote exited #{status}: #{String.slice(output, 0, 500)}"}
+      {output, status} -> {:error, "git ls-remote exited #{status}: #{output |> SecretRedactor.redact_string() |> String.slice(0, 500)}"}
     end
   end
 
@@ -410,7 +407,7 @@ defmodule SymphonyElixir.SmokeCheck do
       path ->
         case System.cmd(path, ["--version"], stderr_to_stdout: true) do
           {output, 0} -> {:ok, output}
-          {output, status} -> {:error, "exited #{status}: #{String.slice(output, 0, 500)}"}
+          {output, status} -> {:error, "exited #{status}: #{output |> SecretRedactor.redact_string() |> String.slice(0, 500)}"}
         end
     end
   end
@@ -434,8 +431,8 @@ defmodule SymphonyElixir.SmokeCheck do
   end
 
   defp format_reason(:blank_runtime_preset), do: "runtime preset is blank"
-  defp format_reason(reason) when is_binary(reason), do: reason
-  defp format_reason(reason), do: inspect(reason)
+  defp format_reason(reason) when is_binary(reason), do: SecretRedactor.redact_string(reason)
+  defp format_reason(reason), do: SecretRedactor.inspect_redacted(reason)
 
   defp normalize_env(value) when is_binary(value) do
     case String.trim(value) do

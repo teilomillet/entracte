@@ -47,6 +47,23 @@ entracte start
 possible. If your shell cannot find `entracte` afterward, run `make start` from
 this checkout or add the printed bin directory to your `PATH`.
 
+Useful operator checks:
+
+```bash
+entracte doctor
+entracte tickets
+entracte status
+```
+
+After installing Podman, run the same profile as a background daemon:
+
+```bash
+entracte daemon build
+entracte daemon start /path/to/runner.toml
+entracte daemon status /path/to/runner.toml
+entracte daemon logs /path/to/runner.toml
+```
+
 ---
 
 ## License

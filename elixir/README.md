@@ -99,6 +99,10 @@ This repo also includes `./entracte`, a small wrapper around the Mix tasks:
 ./entracte setup
 ./entracte start
 ./entracte check
+./entracte doctor
+./entracte tickets
+./entracte status
+./entracte daemon status --name default
 ./entracte bootstrap
 ```
 
@@ -116,11 +120,29 @@ Then start this checkout with defaults or use a TOML profile from any directory:
 entracte setup
 entracte start
 entracte check
+entracte doctor
+entracte tickets
+entracte status
+entracte daemon build
+entracte daemon start /path/to/runner.toml
+entracte daemon status /path/to/runner.toml
+entracte daemon logs /path/to/runner.toml
+entracte daemon stop /path/to/runner.toml
 entracte bootstrap --runtime sari/claude_code --sari-bin /path/to/sari/scripts/sari_app_server
 entracte start /path/to/runner.toml
 entracte /path/to/runner.toml
 entracte check /path/to/runner.toml
+entracte doctor /path/to/runner.toml
+entracte tickets /path/to/runner.toml
+entracte status /path/to/runner.toml
 ```
+
+`entracte doctor` explains the loaded env file, workflow, Linear organization,
+visible projects, configured project slug matches, ticket dispatch preview,
+source repo access, runtime binary, and dashboard reachability. `entracte
+tickets` prints only the ticket preview and why each visible active-state issue
+is ready or skipped. `entracte status` checks the local dashboard API for the
+configured port.
 
 Minimal profile:
 
@@ -130,11 +152,39 @@ workflow = "WORKFLOW.md"
 env_file = ".env"
 logs_root = "log"
 port = 4000
+name = "default"
+podman_image = "localhost/entracte-runner:latest"
+mount_host_auth = true
 ```
 
 The profile path is resolved from the directory where `entracte` is invoked. Paths inside the
 profile are resolved relative to the profile file, so a profile can live next to its own workflow and
 env file.
+
+### Podman Daemon
+
+Use the daemon command when the runner should continue after the terminal closes:
+
+```bash
+entracte daemon build
+entracte daemon start /path/to/runner.toml
+entracte daemon status /path/to/runner.toml
+entracte daemon logs /path/to/runner.toml --tail 200
+entracte daemon stop /path/to/runner.toml
+```
+
+This path requires `podman` on `PATH`. `daemon build` builds `containers/entracte-runner.Containerfile` into
+`localhost/entracte-runner:latest`. The image installs the pinned Elixir/Erlang toolchain through
+`mise` at container start and includes Codex CLI `0.128.0` by default. The start command runs
+`symphony.check` before `symphony.start` inside the container, so bad Linear credentials, missing
+source access, or a missing agent runtime fail before the daemon starts dispatching work.
+
+`daemon start` mounts the Entr'acte checkout, the configured workspace root, and `logs_root` at the
+same paths inside the container. With `mount_host_auth = true` or `--mount-host-auth`, it also mounts
+host Codex auth, SSH keys, Git config, and common GitHub/GitLab CLI config paths read-only under
+`/root`. The command refuses to start if the dashboard port already responds, which prevents
+accidentally starting a second runner for the same profile; use `--allow-running-dashboard` only when
+you intentionally want to replace an existing Podman container.
 
 ## Configuration
 

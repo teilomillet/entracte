@@ -136,6 +136,36 @@ defmodule EntrActe.RootLauncherTest do
            end)
   end
 
+  test "root launcher forwards daemon commands" do
+    tmp_dir = Path.join(System.tmp_dir!(), "entracte-root-launcher-test-#{System.unique_integer([:positive])}")
+    File.rm_rf!(tmp_dir)
+    File.mkdir_p!(tmp_dir)
+
+    on_exit(fn -> File.rm_rf!(tmp_dir) end)
+
+    fake_elixir_dir = Path.join(tmp_dir, "elixir")
+    File.mkdir_p!(fake_elixir_dir)
+
+    stub_dir = write_mise_stub!(tmp_dir)
+    launcher = Path.join(repo_root(), "entracte")
+
+    {output, status} =
+      System.cmd(launcher, ["daemon", "status", "--name", "anef"],
+        env: [
+          {"PATH", stub_dir <> ":" <> System.get_env("PATH", "")},
+          {"CAPTURE_COMMANDS", Path.join(tmp_dir, "commands.txt")},
+          {"ENTRACTE_HOME", fake_elixir_dir}
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, output
+
+    assert Enum.any?(captured_commands(tmp_dir), fn command ->
+             String.ends_with?(command, " :: exec -- mix symphony.daemon status --name anef")
+           end)
+  end
+
   defp write_mise_stub!(tmp_dir) do
     stub_dir = Path.join(tmp_dir, "stub-bin")
     File.mkdir_p!(stub_dir)

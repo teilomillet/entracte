@@ -23,6 +23,24 @@ defmodule SymphonyElixir.RunnerProbe do
 
   def dashboard_running?(_port, _deps), do: false
 
+  @spec fetch_state(non_neg_integer()) :: {:ok, map()} | {:error, term()}
+  def fetch_state(port), do: fetch_state(port, runtime_deps())
+
+  @spec fetch_state(non_neg_integer(), deps()) :: {:ok, map()} | {:error, term()}
+  def fetch_state(port, deps) when is_integer(port) and port > 0 and is_map(deps) do
+    with {:ok, _apps} <- deps.ensure_req_started.(),
+         {:ok, %{status: 200, body: body}} <- deps.get.(state_url(port)),
+         true <- state_payload?(body) do
+      {:ok, body}
+    else
+      false -> {:error, :unexpected_dashboard_payload}
+      {:ok, %{status: status}} -> {:error, {:dashboard_http_status, status}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def fetch_state(_port, _deps), do: {:error, :invalid_dashboard_port}
+
   @spec dashboard_url(non_neg_integer()) :: String.t()
   def dashboard_url(port) when is_integer(port) and port > 0 do
     "http://127.0.0.1:#{port}"
